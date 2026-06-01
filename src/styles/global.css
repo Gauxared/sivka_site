@@ -658,6 +658,11 @@ label small,
   font-weight: 700;
 }
 
+.field-error {
+  color: var(--danger);
+  font-weight: 800;
+}
+
 .form-grid {
   display: grid;
   gap: 14px;
@@ -1570,7 +1575,8 @@ label small,
 .admin-preview {
   display: flex;
   align-items: flex-end;
-  min-height: 210px;
+  min-height: 0;
+  aspect-ratio: 1 / 1;
   overflow: hidden;
   border-radius: 8px;
   padding: 18px;
@@ -1644,10 +1650,11 @@ label small,
 
 .media-picker-thumb {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1 / 1;
   border-radius: 8px;
-  background-size: cover;
+  background-size: contain;
   background-position: center;
+  background-repeat: no-repeat;
   background-color: #e1e5dc;
 }
 
@@ -1725,8 +1732,8 @@ label small,
 .horse-admin-photo {
   display: flex;
   align-items: flex-end;
-  min-height: 190px;
-  aspect-ratio: 16 / 10;
+  min-height: 0;
+  aspect-ratio: 1 / 1;
   padding: 16px;
   color: white;
   font-size: 22px;
@@ -1859,6 +1866,103 @@ label small,
 .gallery-masonry {
   display: grid;
   gap: 16px;
+}
+
+.gallery-carousel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.gallery-carousel-main {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.gallery-carousel-stage {
+  position: relative;
+  min-height: 420px;
+  overflow: hidden;
+  border-radius: 8px;
+  background-color: #f5f1e8;
+  background-repeat: no-repeat;
+  background-position: center;
+  box-shadow: var(--shadow);
+}
+
+.gallery-carousel-caption {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  left: 18px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: end;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: linear-gradient(90deg, rgba(20, 53, 31, 0.86), rgba(20, 53, 31, 0.58));
+  color: white;
+}
+
+.gallery-carousel-caption strong {
+  font-size: clamp(22px, 3vw, 32px);
+  line-height: 1.1;
+}
+
+.gallery-carousel-caption span {
+  white-space: nowrap;
+  font-weight: 900;
+}
+
+.gallery-carousel-arrow {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: white;
+  color: var(--green-900);
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(20, 53, 31, 0.1);
+}
+
+.gallery-carousel-arrow:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.gallery-carousel-thumbs {
+  display: grid;
+  grid-auto-columns: minmax(78px, 110px);
+  grid-auto-flow: column;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.gallery-carousel-thumbs button {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.gallery-carousel-thumbs button.active {
+  border-color: var(--green-800);
+}
+
+.gallery-carousel-thumbs span {
+  display: block;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  background-color: #f5f1e8;
+  background-repeat: no-repeat;
+  background-position: center;
 }
 
 .gallery-photo-card {
@@ -2082,10 +2186,11 @@ label small,
 
 .service-card--catalog .service-card-image {
   min-height: 0;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 1 / 1;
   padding: 0;
-  background-size: cover;
+  background-size: contain;
   background-position: center;
+  background-repeat: no-repeat;
 }
 
 .service-card--catalog .service-card-body {
@@ -2143,10 +2248,12 @@ label small,
 }
 
 .service-detail-photo {
-  min-height: 360px;
+  min-height: 0;
+  aspect-ratio: 1 / 1;
   border-radius: 10px;
-  background-size: cover;
+  background-size: contain;
   background-position: center;
+  background-repeat: no-repeat;
   box-shadow: 0 16px 36px rgba(20, 53, 31, 0.12);
 }
 
@@ -2162,8 +2269,9 @@ label small,
   height: 54px;
   border: 3px solid white;
   border-radius: 8px;
-  background-size: cover;
+  background-size: contain;
   background-position: center;
+  background-repeat: no-repeat;
   box-shadow: 0 8px 18px rgba(20, 53, 31, 0.12);
 }
 
@@ -2239,27 +2347,42 @@ label small,
   padding: 0 8px;
 }
 
-.service-tabs a {
+.service-tabs a,
+.service-tabs button {
   flex: 0 0 auto;
   border-bottom: 3px solid transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
   padding: 18px 0;
+  background: transparent;
   color: #2f3d32;
   font-weight: 800;
+  font: inherit;
+  cursor: pointer;
 }
 
-.service-tabs a.active {
+.service-tabs a.active,
+.service-tabs button.active {
   border-color: var(--green-800);
   color: var(--green-900);
 }
 
 .service-detail-content {
-  display: grid;
-  gap: 24px;
-  align-items: start;
   margin-bottom: 28px;
 }
 
-.service-detail-content > article {
+.service-tab-panel {
+  display: grid;
+  gap: 24px;
+  align-items: start;
+}
+
+.service-tab-panel--single {
+  display: block;
+}
+
+.service-tab-panel > article {
   padding: 10px 8px;
 }
 
@@ -2378,6 +2501,17 @@ label small,
   padding: clamp(20px, 4vw, 28px);
 }
 
+.booking-selected-service-photo {
+  min-height: 0;
+  aspect-ratio: 16 / 10;
+  padding: clamp(18px, 4vw, 28px);
+  background-repeat: no-repeat;
+  background-size: contain;
+  background-position: center;
+  font-size: clamp(24px, 4vw, 36px);
+  line-height: 1.05;
+}
+
 .booking-help-strip {
   display: grid;
   gap: 16px;
@@ -2456,7 +2590,7 @@ label small,
     min-height: 520px;
   }
 
-  .service-detail-content {
+  .service-tab-panel {
     grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.85fr);
   }
 
@@ -2477,6 +2611,20 @@ label small,
   .catalog-filter-panel,
   .booking-help-strip {
     grid-template-columns: 1fr;
+  }
+
+  .gallery-carousel {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery-carousel-arrow {
+    width: 100%;
+    height: 42px;
+    border-radius: 8px;
+  }
+
+  .gallery-carousel-stage {
+    min-height: 280px;
   }
 
   .service-detail-facts div {
@@ -2578,6 +2726,10 @@ label small,
 
   .booking-layout {
     align-items: start;
+  }
+
+  .booking-page-redesign .booking-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(420px, 0.95fr);
   }
 
   .cards-grid {

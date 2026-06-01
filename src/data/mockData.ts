@@ -18,7 +18,7 @@ import type {
 export const siteContent: SiteContent = {
   siteName: 'КТК "Сивка-Бурка"',
   siteSubtitle: 'конно-спортивный клуб',
-  homeEyebrow: 'г. Гурьевск · КТК "Сивка-Бурка"',
+  homeEyebrow: 'пгт. Шерегеш · КТК "Сивка-Бурка"',
   homeHeroTitle: 'Конно-спортивные услуги для обучения, отдыха и семейного досуга',
   homeHeroText: 'Помогаем спокойно познакомиться с лошадьми, выбрать подходящий формат занятия и оставить предварительную заявку без лишней сложности.',
   homeHeroImage: 'linear-gradient(135deg, #24482d 0%, #7b5b38 48%, #d9bd89 100%)',
@@ -391,7 +391,7 @@ export const galleryItems: GalleryItem[] = [
 ];
 
 export const contacts: ContactInfo = {
-  address: 'г. Гурьевск, территория конно-спортивного клуба "Сивка-Бурка"',
+  address: 'пгт. Шерегеш, территория конно-спортивного клуба "Сивка-Бурка"',
   phone: '+7 (999) 123-45-67',
   email: 'info@orlova-horse.ru',
   requestSchedule: 'Заявки обрабатываются ежедневно с 08:00 до 20:00',

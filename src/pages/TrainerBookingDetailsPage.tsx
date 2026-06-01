@@ -7,6 +7,7 @@ import { getBookingById, getHorses, getServiceById, updateBookingTrainerStatus }
 import { getTrainerById } from '../services/trainerRepository';
 import { getAuthorizedTrainerId, isTrainerAuthorized, logoutTrainer } from '../services/trainerAuth';
 import type { Booking, Horse, Trainer } from '../types';
+import { riderExperienceLabels, trainerBookingStatusLabels } from '../utils/labels';
 
 export function TrainerBookingDetailsPage() {
   const navigate = useNavigate();
@@ -96,7 +97,7 @@ export function TrainerBookingDetailsPage() {
           <h2>{booking.date} · {booking.startTime}-{booking.endTime}</h2>
           <p>Услуга: {serviceTitle}</p>
           <p>Клиент: {booking.clientName} · {booking.clientPhone}</p>
-          <p>Статус тренера: {booking.trainerStatus || 'notified'}</p>
+          <p>Статус тренера: {trainerBookingStatusLabels[booking.trainerStatus || 'notified']}</p>
 
           <div className="participants-list">
             {booking.participants.map((participant) => {
@@ -108,7 +109,7 @@ export function TrainerBookingDetailsPage() {
                     <span>{participant.age} лет</span>
                   </div>
                   <p>Вес: {participant.weightKg} кг</p>
-                  <p>Опыт: {participant.experience}</p>
+                  <p>Опыт: {riderExperienceLabels[participant.experience]}</p>
                   <p>Лошадь: {assignment ? horseById.get(assignment.horseId) || assignment.horseId : 'Не назначена'}</p>
                   {participant.comment && <p>Комментарий: {participant.comment}</p>}
                 </article>

@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { BookingForm } from '../components/booking/BookingForm';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { ErrorState, LoadingState } from '../components/ui/States';
-import { getEditableSiteContent } from '../services/adminContent';
+import { getEditableContacts, getEditableSiteContent } from '../services/adminContent';
 import { getServices } from '../services/api';
 import type { Service } from '../types';
 import { getMediaStyle } from '../utils/media';
@@ -15,6 +15,7 @@ export function BookingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const siteContent = getEditableSiteContent();
+  const contacts = getEditableContacts();
 
   useEffect(() => {
     getServices()
@@ -51,15 +52,15 @@ export function BookingPage() {
         <article>
           <Phone size={24} />
           <div>
-            <strong>+7 (999) 123-45-67</strong>
+            <strong>{contacts.phone}</strong>
             <span>Ежедневно с 08:00 до 20:00</span>
           </div>
         </article>
         <article>
           <MapPin size={24} />
           <div>
-            <strong>г. Гурьевск</strong>
-            <span>Территория конюшни</span>
+            <strong>пгт. Шерегеш</strong>
+            <span>Территория КТК "Сивка-Бурка"</span>
           </div>
         </article>
         <article>

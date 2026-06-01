@@ -3,15 +3,10 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { getAvailableDates, getAvailableTimeSlots } from '../../services/availabilityService';
 import { createBookingRequest } from '../../services/api';
 import type { BookingParticipant, BookingRequest, FormStatus, RiderExperience, Service, TimeSlot } from '../../types';
+import { riderExperienceLabels } from '../../utils/labels';
 import { getMediaStyle } from '../../utils/media';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/States';
-
-const experienceLabels: Record<RiderExperience, string> = {
-  beginner: 'Новичок',
-  experienced: 'Есть опыт',
-  confident: 'Уверенный наездник',
-};
 
 const createParticipant = (): BookingParticipant => ({
   id: `participant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -328,7 +323,7 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
                   <label>
                     <span>Уровень подготовки *</span>
                     <select value={participant.experience} onChange={(event) => updateParticipant(participant.id, 'experience', event.target.value as RiderExperience)}>
-                      {Object.entries(experienceLabels).map(([value, label]) => (
+                      {Object.entries(riderExperienceLabels).map(([value, label]) => (
                         <option key={value} value={value}>
                           {label}
                         </option>
@@ -374,7 +369,7 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
         {selectedService && (
           <section className="side-panel">
             <h3>Выбранная услуга</h3>
-            <div className="mini-service" style={getMediaStyle(selectedService.image)}>
+            <div className="mini-service booking-selected-service-photo" style={getMediaStyle(selectedService.image, { fit: 'contain' })}>
               {selectedService.title}
             </div>
             <dl className="compact-list">

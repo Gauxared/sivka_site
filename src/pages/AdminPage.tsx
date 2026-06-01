@@ -605,7 +605,7 @@ export function AdminPage() {
           </div>
           {services.map((service) => (
             <article className="admin-editor" key={service.id}>
-              <div className="admin-preview" style={getMediaStyle(service.image)}><span>{service.title}</span></div>
+              <div className="admin-preview" style={getMediaStyle(service.image, { fit: 'contain' })}><span>{service.title}</span></div>
               <div className="admin-form-grid">
                 <label><span>Название</span><input value={service.title} onChange={(event) => updateService(service.id, 'title', event.target.value)} /></label>
                 <label><span>Цена</span><input value={service.price} onChange={(event) => updateService(service.id, 'price', event.target.value)} /></label>
@@ -653,7 +653,7 @@ export function AdminPage() {
           {horses.map((horse) => (
             <article className="admin-editor compact-editor" key={horse.id}>
               <div className="horse-admin-card">
-                <div className="horse-admin-photo" style={getMediaStyle(horse.image || '')}>
+                <div className="horse-admin-photo" style={getMediaStyle(horse.image || '', { fit: 'contain' })}>
                   <span>{horse.name}</span>
                 </div>
                 <div className="horse-admin-info">
@@ -685,7 +685,7 @@ export function AdminPage() {
           {trainers.map((trainer) => (
             <article className="admin-editor compact-editor" key={trainer.id}>
               <div className="horse-admin-card">
-                <div className="horse-admin-photo" style={getMediaStyle(trainer.photo || '')}>
+                <div className="horse-admin-photo" style={getMediaStyle(trainer.photo || '', { fit: 'contain' })}>
                   <span>{trainer.fullName}</span>
                 </div>
                 <div className="horse-admin-info">

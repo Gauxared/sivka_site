@@ -32,13 +32,51 @@ function readStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function isQuotaError(error: unknown) {
+  return error instanceof DOMException && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+}
+
 function writeStorage<T>(key: string, value: T) {
-  window.localStorage.setItem(key, JSON.stringify(value));
+  const serializedValue = JSON.stringify(value);
+
+  try {
+    window.localStorage.setItem(key, serializedValue);
+  } catch (error) {
+    if (!isQuotaError(error)) throw error;
+
+    window.localStorage.removeItem(CONTENT_REVISIONS_KEY);
+    window.localStorage.setItem(key, serializedValue);
+  }
+
   window.dispatchEvent(new Event('orlov-content-updated'));
 }
 
+function replaceOldLocation(value: string) {
+  return value.replace('г. Гурьевск', 'пгт. Шерегеш').replace('Гурьевск', 'пгт. Шерегеш');
+}
+
+function normalizeContentBlock(block: ContentBlock): ContentBlock {
+  const nextBlock = { ...block } as ContentBlock & { data?: Record<string, unknown> };
+
+  if (typeof nextBlock.eyebrow === 'string' && nextBlock.eyebrow.includes('Гурьевск')) {
+    nextBlock.eyebrow = replaceOldLocation(nextBlock.eyebrow);
+  }
+
+  if (nextBlock.data && typeof nextBlock.data === 'object' && !Array.isArray(nextBlock.data)) {
+    const nextData = { ...nextBlock.data };
+    Object.entries(nextData).forEach(([key, value]) => {
+      if (typeof value === 'string' && value.includes('Гурьевск')) {
+        nextData[key] = replaceOldLocation(value);
+      }
+    });
+    nextBlock.data = nextData;
+  }
+
+  return nextBlock;
+}
+
 function getStoredContentBlocks() {
-  return readStorage<ContentBlock[]>(CONTENT_BLOCKS_KEY, initialContentBlocks);
+  return readStorage<ContentBlock[]>(CONTENT_BLOCKS_KEY, initialContentBlocks).map(normalizeContentBlock);
 }
 
 function saveContentBlocks(items: ContentBlock[]) {
@@ -65,6 +103,17 @@ function saveContentRevisions(items: ContentRevision[]) {
   writeStorage(CONTENT_REVISIONS_KEY, items);
 }
 
+function sanitizeRevisionSnapshot(snapshot: unknown) {
+  return JSON.parse(
+    JSON.stringify(snapshot, (_key, value) => {
+      if (typeof value === 'string' && value.startsWith('data:image/')) {
+        return `[image omitted: ${Math.round(value.length / 1024)} KB]`;
+      }
+      return value;
+    }),
+  ) as unknown;
+}
+
 function upsertRevision(entityType: ContentRevision['entityType'], entityId: string, snapshot: unknown) {
   const nextRevision: ContentRevision = {
     id: `revision-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -72,9 +121,13 @@ function upsertRevision(entityType: ContentRevision['entityType'], entityId: str
     entityId,
     createdAt: new Date().toISOString(),
     createdBy: 'admin-local',
-    snapshot,
+    snapshot: sanitizeRevisionSnapshot(snapshot),
   };
-  saveContentRevisions([nextRevision, ...getStoredContentRevisions()]);
+  saveContentRevisions([nextRevision, ...getStoredContentRevisions()].slice(0, 40));
+}
+
+export function compactContentStorage() {
+  window.localStorage.removeItem(CONTENT_REVISIONS_KEY);
 }
 
 export async function getPageContent(pageKey: ManagedPageKey): Promise<ApiResponse<ContentBlock[]>> {
@@ -157,6 +210,8 @@ export async function getMediaFolders(): Promise<ApiResponse<MediaFolder[]>> {
 }
 
 export async function createMediaAsset(data: Omit<MediaAsset, 'id' | 'createdAt'>): Promise<ApiResponse<MediaAsset>> {
+  compactContentStorage();
+
   const asset: MediaAsset = {
     ...data,
     id: `media-${Date.now()}`,

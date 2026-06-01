@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getEditableSiteContent, isAdminAuthorized, isAdminEditMode, saveEditableSiteContent } from '../../services/adminContent';
 import type { PageCopy, PageCopyKey, SiteContent } from '../../types';
 import { SectionTitle } from '../ui/SectionTitle';
+import { EditableTextField } from './EditableTextField';
 
 interface EditablePageTitleProps {
   pageKey: PageCopyKey;
@@ -51,15 +52,15 @@ export function EditablePageTitle({ pageKey }: EditablePageTitleProps) {
           <strong>Текст страницы</strong>
           <label>
             <span>Надзаголовок</span>
-            <input value={pageCopy.eyebrow} onChange={(event) => updatePageCopy('eyebrow', event.target.value)} />
+            <EditableTextField value={pageCopy.eyebrow} onCommit={(value) => updatePageCopy('eyebrow', value)} />
           </label>
           <label>
             <span>Заголовок</span>
-            <textarea value={pageCopy.title} onChange={(event) => updatePageCopy('title', event.target.value)} rows={2} />
+            <EditableTextField value={pageCopy.title} onCommit={(value) => updatePageCopy('title', value)} multiline rows={2} />
           </label>
           <label>
             <span>Описание</span>
-            <textarea value={pageCopy.text} onChange={(event) => updatePageCopy('text', event.target.value)} rows={3} />
+            <EditableTextField value={pageCopy.text} onCommit={(value) => updatePageCopy('text', value)} multiline rows={3} />
           </label>
         </div>
       )}

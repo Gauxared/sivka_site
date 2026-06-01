@@ -14,6 +14,7 @@ import {
   managerUpdateBookingStatus,
 } from '../services/managerRepository';
 import type { Booking, BookingStatus, Horse, ManagerAttentionBooking, Service, Trainer } from '../types';
+import { bookingStatusLabels, riderExperienceLabels } from '../utils/labels';
 
 const STATUS_OPTIONS: Array<{ value: BookingStatus; label: string }> = [
   { value: 'pending', label: 'Ожидает подтверждения' },
@@ -119,7 +120,7 @@ export function ManagerBookingDetailsPage() {
           <p>Услуга: {serviceMap.get(booking.serviceId) || booking.serviceId}</p>
           <p>Клиент: {booking.clientName} · {booking.clientPhone}</p>
           <p>Назначенный тренер: {booking.assignedTrainerId ? trainerMap.get(booking.assignedTrainerId) || booking.assignedTrainerId : 'Не назначен'}</p>
-          <p>Статус: <span className={`status-pill status-${booking.status}`}>{booking.status}</span></p>
+          <p>Статус: <span className={`status-pill status-${booking.status}`}>{bookingStatusLabels[booking.status]}</span></p>
 
           {attention && attention.reasons.length > 0 && <div className="conflict-box">{attention.reasons.join(', ')}</div>}
 
@@ -132,7 +133,7 @@ export function ManagerBookingDetailsPage() {
                     <h4>{participant.fullName}</h4>
                     <span>{participant.age} лет</span>
                   </div>
-                  <p>Вес: {participant.weightKg} кг · Опыт: {participant.experience}</p>
+                  <p>Вес: {participant.weightKg} кг · Опыт: {riderExperienceLabels[participant.experience]}</p>
                   <p>Лошадь: {assignment ? horseMap.get(assignment.horseId) || assignment.horseId : 'Не назначена'}</p>
                   {participant.comment && <p>Комментарий: {participant.comment}</p>}
                 </article>

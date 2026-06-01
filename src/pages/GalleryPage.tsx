@@ -1,9 +1,9 @@
-import { FolderOpen, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { EditableTextField } from '../components/admin/EditableTextField';
 import { EditablePageTitle } from '../components/admin/EditablePageTitle';
 import { ImageUploadButton } from '../components/admin/ImageUploadButton';
 import { Button } from '../components/ui/Button';
-import { SectionTitle } from '../components/ui/SectionTitle';
 import { ErrorState, LoadingState } from '../components/ui/States';
 import {
   createEmptyGalleryItem,
@@ -32,8 +32,11 @@ const defaultCategoryImage: Record<GalleryItem['category'], string> = {
   territory: 'linear-gradient(135deg, #375c42, #d7bc80)',
 };
 
+type ActiveIndexes = Partial<Record<GalleryItem['category'], number>>;
+
 export function GalleryPage() {
   const [items, setItems] = useState<GalleryItem[]>([]);
+  const [activeIndexes, setActiveIndexes] = useState<ActiveIndexes>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [adminEditMode, setAdminEditMode] = useState(isAdminAuthorized() && isAdminEditMode());
@@ -41,7 +44,10 @@ export function GalleryPage() {
   useEffect(() => {
     const loadGallery = () => {
       getGalleryItems()
-        .then((response) => setItems(response.data))
+        .then((response) => {
+          setItems(response.data);
+          setError(false);
+        })
         .catch(() => setError(true))
         .finally(() => setLoading(false));
     };
@@ -84,10 +90,25 @@ export function GalleryPage() {
       image: defaultCategoryImage[category],
     };
     saveGallery([newItem, ...getEditableGalleryItems()]);
+    setActiveIndexes((current) => ({ ...current, [category]: 0 }));
   };
 
-  const deleteItem = (id: string) => {
+  const deleteItem = (id: string, category: GalleryItem['category']) => {
     saveGallery(getEditableGalleryItems().filter((item) => item.id !== id));
+    setActiveIndexes((current) => ({ ...current, [category]: Math.max(0, (current[category] || 0) - 1) }));
+  };
+
+  const getActiveIndex = (category: GalleryItem['category'], count: number) => {
+    if (count <= 0) return 0;
+    return Math.min(activeIndexes[category] || 0, count - 1);
+  };
+
+  const moveCarousel = (category: GalleryItem['category'], count: number, direction: -1 | 1) => {
+    if (count <= 1) return;
+    setActiveIndexes((current) => {
+      const nextIndex = ((current[category] || 0) + direction + count) % count;
+      return { ...current, [category]: nextIndex };
+    });
   };
 
   return (
@@ -98,9 +119,12 @@ export function GalleryPage() {
       {error && <ErrorState />}
 
       {!loading && !error && (
-        <>
-          <div className="gallery-story">
-            {groupedItems.map((section) => (
+        <div className="gallery-story">
+          {groupedItems.map((section) => {
+            const activeIndex = getActiveIndex(section.value, section.items.length);
+            const activeItem = section.items[activeIndex];
+
+            return (
               <section className="gallery-section" id={`gallery-${section.value}`} key={section.value}>
                 <div className="gallery-section-heading">
                   <div>
@@ -115,64 +139,74 @@ export function GalleryPage() {
                   )}
                 </div>
 
-                <div className="gallery-masonry">
-                  {section.items.map((item) => (
-                    <article className="gallery-photo-card" key={item.id}>
-                      <div className="gallery-photo-media" style={getMediaStyle(item.image)}>
-                        <h3>{item.title}</h3>
+                {activeItem ? (
+                  <div className="gallery-carousel">
+                    <button className="gallery-carousel-arrow" type="button" disabled={section.items.length <= 1} onClick={() => moveCarousel(section.value, section.items.length, -1)} aria-label="Предыдущее фото">
+                      <ChevronLeft size={24} />
+                    </button>
+
+                    <div className="gallery-carousel-main">
+                      <div className="gallery-carousel-stage" style={getMediaStyle(activeItem.image, { fit: 'contain' })}>
+                        <div className="gallery-carousel-caption">
+                          <strong>{activeItem.title}</strong>
+                          <span>{activeIndex + 1} / {section.items.length}</span>
+                        </div>
                       </div>
 
-                      {adminEditMode && (
-                        <div className="inline-edit-panel gallery-inline-panel">
-                          <strong>Редактирование фото</strong>
-                          <label>
-                            <span>Заголовок</span>
-                            <input value={item.title} onChange={(event) => updateItem(item.id, 'title', event.target.value)} />
-                          </label>
-                          <label>
-                            <span>Категория</span>
-                            <select value={item.category} onChange={(event) => updateItem(item.id, 'category', event.target.value as GalleryItem['category'])}>
-                              {gallerySections.map((category) => (
-                                <option key={category.value} value={category.value}>
-                                  {category.title}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            <span>URL или gradient</span>
-                            <input value={item.image} onChange={(event) => updateItem(item.id, 'image', event.target.value)} />
-                          </label>
-                          <ImageUploadButton label="Добавить файл фото" onUpload={(dataUrl) => updateItem(item.id, 'image', dataUrl)} />
-                          <button className="button button-ghost danger-button" type="button" onClick={() => deleteItem(item.id)}>
-                            <Trash2 size={17} /> Удалить фото
+                      <div className="gallery-carousel-thumbs" aria-label={`Миниатюры: ${section.title}`}>
+                        {section.items.map((item, index) => (
+                          <button
+                            className={index === activeIndex ? 'active' : ''}
+                            key={item.id}
+                            type="button"
+                            onClick={() => setActiveIndexes((current) => ({ ...current, [section.value]: index }))}
+                            aria-label={`Открыть фото: ${item.title}`}
+                          >
+                            <span style={getMediaStyle(item.image, { fit: 'contain' })} />
                           </button>
-                        </div>
-                      )}
-                    </article>
-                  ))}
+                        ))}
+                      </div>
+                    </div>
 
-                  {section.items.length === 0 && (
-                    <div className="state-box">В этом альбоме пока нет фотографий.</div>
-                  )}
-                </div>
+                    <button className="gallery-carousel-arrow" type="button" disabled={section.items.length <= 1} onClick={() => moveCarousel(section.value, section.items.length, 1)} aria-label="Следующее фото">
+                      <ChevronRight size={24} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="state-box">В этом альбоме пока нет фотографий.</div>
+                )}
+
+                {adminEditMode && activeItem && (
+                  <div className="inline-edit-panel gallery-inline-panel">
+                    <strong>Редактирование выбранного фото</strong>
+                    <label>
+                      <span>Заголовок</span>
+                      <EditableTextField value={activeItem.title} onCommit={(value) => updateItem(activeItem.id, 'title', value)} />
+                    </label>
+                    <label>
+                      <span>Категория</span>
+                      <select value={activeItem.category} onChange={(event) => updateItem(activeItem.id, 'category', event.target.value as GalleryItem['category'])}>
+                        {gallerySections.map((category) => (
+                          <option key={category.value} value={category.value}>
+                            {category.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>URL или gradient</span>
+                      <EditableTextField value={activeItem.image} onCommit={(value) => updateItem(activeItem.id, 'image', value)} />
+                    </label>
+                    <ImageUploadButton label="Добавить файл фото" onUpload={(dataUrl) => updateItem(activeItem.id, 'image', dataUrl)} />
+                    <button className="button button-ghost danger-button" type="button" onClick={() => deleteItem(activeItem.id, section.value)}>
+                      <Trash2 size={17} /> Удалить фото
+                    </button>
+                  </div>
+                )}
               </section>
-            ))}
-          </div>
-
-          <section className="gallery-folders" aria-label="Папки галереи">
-            <SectionTitle eyebrow="Папки" title="Все фотографии по разделам" text="Нижний блок работает как каталог папок, где сгруппированы все загруженные изображения." />
-            <div className="folder-grid">
-              {groupedItems.map((section) => (
-                <a className="folder-card" href={`#gallery-${section.value}`} key={section.value}>
-                  <FolderOpen size={28} />
-                  <strong>{section.title}</strong>
-                  <span>{section.items.length} фото</span>
-                </a>
-              ))}
-            </div>
-          </section>
-        </>
+            );
+          })}
+        </div>
       )}
     </section>
   );

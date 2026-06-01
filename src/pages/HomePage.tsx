@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowRight, ArrowUp, Eye, EyeOff, HeartHandshake, ShieldCheck, Sprout } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { EditableTextField } from '../components/admin/EditableTextField';
 import { ImageUploadButton } from '../components/admin/ImageUploadButton';
 import { ReviewCard } from '../components/reviews/ReviewCard';
 import { ServiceCard } from '../components/services/ServiceCard';
@@ -161,7 +162,7 @@ export function HomePage() {
       {heroBlock?.isVisible !== false && (
         <section className="hero-section">
           <div className="hero-content">
-            <span className="eyebrow">{heroBlock?.eyebrow || siteContent?.homeEyebrow || 'г. Гурьевск · КТК "Сивка-Бурка"'}</span>
+            <span className="eyebrow">{heroBlock?.eyebrow || siteContent?.homeEyebrow || 'пгт. Шерегеш · КТК "Сивка-Бурка"'}</span>
             <h1>{heroBlock?.title || siteContent?.homeHeroTitle || 'Конно-спортивные услуги для обучения, отдыха и семейного досуга'}</h1>
             <p>{heroBlock?.text || siteContent?.homeHeroText || 'Помогаем спокойно познакомиться с лошадьми, выбрать подходящий формат занятия и оставить предварительную заявку.'}</p>
             <div className="hero-actions">
@@ -186,39 +187,41 @@ export function HomePage() {
                 <strong>Настройки главного блока</strong>
                 <label>
                   <span>Надзаголовок</span>
-                  <input
+                  <EditableTextField
                     value={heroBlock?.eyebrow || siteContent.homeEyebrow}
-                    onChange={(event) => {
-                      updateSiteContent('homeEyebrow', event.target.value);
-                      void updateBlockTextField(heroBlock, 'eyebrow', event.target.value);
+                    onCommit={(value) => {
+                      updateSiteContent('homeEyebrow', value);
+                      void updateBlockTextField(heroBlock, 'eyebrow', value);
                     }}
                   />
                 </label>
                 <label>
                   <span>Заголовок</span>
-                  <textarea
+                  <EditableTextField
                     value={heroBlock?.title || siteContent.homeHeroTitle}
-                    onChange={(event) => {
-                      updateSiteContent('homeHeroTitle', event.target.value);
-                      void updateBlockTextField(heroBlock, 'title', event.target.value);
+                    onCommit={(value) => {
+                      updateSiteContent('homeHeroTitle', value);
+                      void updateBlockTextField(heroBlock, 'title', value);
                     }}
+                    multiline
                     rows={2}
                   />
                 </label>
                 <label>
                   <span>Текст</span>
-                  <textarea
+                  <EditableTextField
                     value={heroBlock?.text || siteContent.homeHeroText}
-                    onChange={(event) => {
-                      updateSiteContent('homeHeroText', event.target.value);
-                      void updateBlockTextField(heroBlock, 'text', event.target.value);
+                    onCommit={(value) => {
+                      updateSiteContent('homeHeroText', value);
+                      void updateBlockTextField(heroBlock, 'text', value);
                     }}
+                    multiline
                     rows={3}
                   />
                 </label>
                 <label>
                   <span>Фон: URL, gradient или data-url</span>
-                  <input value={siteContent.homeHeroImage} onChange={(event) => updateSiteContent('homeHeroImage', event.target.value)} />
+                  <EditableTextField value={siteContent.homeHeroImage} onCommit={(value) => updateSiteContent('homeHeroImage', value)} />
                 </label>
                 <ImageUploadButton label="Добавить файл фона" onUpload={(dataUrl) => updateSiteContent('homeHeroImage', dataUrl)} />
                 <label>
@@ -250,15 +253,15 @@ export function HomePage() {
               <strong>Редактирование блока услуг</strong>
               <label>
                 <span>Надзаголовок</span>
-                <input value={servicesBlock?.eyebrow || ''} onChange={(event) => void updateBlockTextField(servicesBlock, 'eyebrow', event.target.value)} />
+                <EditableTextField value={servicesBlock?.eyebrow || ''} onCommit={(value) => void updateBlockTextField(servicesBlock, 'eyebrow', value)} />
               </label>
               <label>
                 <span>Заголовок</span>
-                <input value={servicesBlock?.title || ''} onChange={(event) => void updateBlockTextField(servicesBlock, 'title', event.target.value)} />
+                <EditableTextField value={servicesBlock?.title || ''} onCommit={(value) => void updateBlockTextField(servicesBlock, 'title', value)} />
               </label>
               <label>
                 <span>Текст</span>
-                <textarea rows={2} value={servicesBlock?.text || ''} onChange={(event) => void updateBlockTextField(servicesBlock, 'text', event.target.value)} />
+                <EditableTextField multiline rows={2} value={servicesBlock?.text || ''} onCommit={(value) => void updateBlockTextField(servicesBlock, 'text', value)} />
               </label>
             </div>
           )}
@@ -294,14 +297,15 @@ export function HomePage() {
                     <div className="benefit-editor-row" key={benefit.id}>
                       <label>
                         <span>{benefit.title}</span>
-                        <textarea
+                        <EditableTextField
                           rows={2}
                           value={benefit.text}
-                          onChange={(event) =>
+                          onCommit={(value) =>
                             void updateBenefits(
-                              benefitItems.map((item) => (item.id === benefit.id ? { ...item, text: event.target.value } : item)),
+                              benefitItems.map((item) => (item.id === benefit.id ? { ...item, text: value } : item)),
                             )
                           }
+                          multiline
                         />
                       </label>
                       <div className="benefit-editor-actions">
@@ -332,23 +336,24 @@ export function HomePage() {
                   <strong>Редактирование блока доверия</strong>
                   <label>
                     <span>Заголовок</span>
-                    <input
+                    <EditableTextField
                       value={trustBlock.title || ''}
-                      onChange={(event) => {
-                        updateSiteContent('trustTitle', event.target.value);
-                        void updateBlockTextField(trustBlock, 'title', event.target.value);
+                      onCommit={(value) => {
+                        updateSiteContent('trustTitle', value);
+                        void updateBlockTextField(trustBlock, 'title', value);
                       }}
                     />
                   </label>
                   <label>
                     <span>Текст</span>
-                    <textarea
+                    <EditableTextField
                       rows={3}
                       value={trustBlock.text || ''}
-                      onChange={(event) => {
-                        updateSiteContent('trustText', event.target.value);
-                        void updateBlockTextField(trustBlock, 'text', event.target.value);
+                      onCommit={(value) => {
+                        updateSiteContent('trustText', value);
+                        void updateBlockTextField(trustBlock, 'text', value);
                       }}
+                      multiline
                     />
                   </label>
                 </div>
@@ -367,15 +372,15 @@ export function HomePage() {
               <strong>Редактирование блока отзывов</strong>
               <label>
                 <span>Надзаголовок</span>
-                <input value={reviewsBlock?.eyebrow || ''} onChange={(event) => void updateBlockTextField(reviewsBlock, 'eyebrow', event.target.value)} />
+                <EditableTextField value={reviewsBlock?.eyebrow || ''} onCommit={(value) => void updateBlockTextField(reviewsBlock, 'eyebrow', value)} />
               </label>
               <label>
                 <span>Заголовок</span>
-                <input
+                <EditableTextField
                   value={reviewsBlock?.title || ''}
-                  onChange={(event) => {
-                    updateSiteContent('reviewsTitle', event.target.value);
-                    void updateBlockTextField(reviewsBlock, 'title', event.target.value);
+                  onCommit={(value) => {
+                    updateSiteContent('reviewsTitle', value);
+                    void updateBlockTextField(reviewsBlock, 'title', value);
                   }}
                 />
               </label>

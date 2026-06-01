@@ -1,11 +1,44 @@
 import { ImagePlus, Library } from 'lucide-react';
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
-import { createMediaAsset, getMediaAssets, getMediaFolders } from '../../services/contentRepository';
+import { compactEditableMediaReferences } from '../../services/adminContent';
+import { compactContentStorage, createMediaAsset, getMediaAssets, getMediaFolders } from '../../services/contentRepository';
 import type { MediaAsset, MediaFolder } from '../../types';
+import { createMediaAssetRef } from '../../utils/media';
 
 interface MediaPickerProps {
   label?: string;
   onSelect: (url: string, asset?: MediaAsset) => void;
+}
+
+const MAX_IMAGE_SIZE = 1000;
+const JPEG_QUALITY = 0.72;
+
+async function readOptimizedImage(file: File): Promise<string> {
+  const sourceUrl = URL.createObjectURL(file);
+
+  try {
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = sourceUrl;
+    await image.decode();
+
+    const scale = Math.min(1, MAX_IMAGE_SIZE / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Canvas is not available');
+    }
+
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
 }
 
 export function MediaPicker({ label = 'Добавить файл', onSelect }: MediaPickerProps) {
@@ -17,6 +50,7 @@ export function MediaPicker({ label = 'Добавить файл', onSelect }: M
   const [title, setTitle] = useState('');
   const [altText, setAltText] = useState('');
   const [folderId, setFolderId] = useState('');
+  const [uploadError, setUploadError] = useState('');
 
   const loadMedia = () => {
     setLoading(true);
@@ -37,30 +71,36 @@ export function MediaPicker({ label = 'Добавить файл', onSelect }: M
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      if (typeof reader.result !== 'string') return;
+    setUploadError('');
+    setLoading(true);
+    try {
+      compactContentStorage();
+      compactEditableMediaReferences();
 
+      const optimizedUrl = await readOptimizedImage(file);
       const nextTitle = title.trim() || file.name;
       const nextAlt = altText.trim() || nextTitle;
       const response = await createMediaAsset({
         fileName: file.name,
         title: nextTitle,
         altText: nextAlt,
-        url: reader.result,
+        url: optimizedUrl,
         folderId: folderId || undefined,
-        mimeType: file.type || 'image/*',
-        sizeBytes: file.size,
+        mimeType: 'image/jpeg',
+        sizeBytes: Math.round((optimizedUrl.length * 3) / 4),
       });
 
-      onSelect(response.data.url, response.data);
+      onSelect(createMediaAssetRef(response.data.id), response.data);
       setTitle('');
       setAltText('');
       setFolderId('');
       loadMedia();
-    };
-    reader.readAsDataURL(file);
-    event.target.value = '';
+    } catch {
+      setUploadError('Не удалось загрузить изображение. Попробуйте файл меньшего размера или другой формат.');
+    } finally {
+      setLoading(false);
+      event.target.value = '';
+    }
   };
 
   return (
@@ -101,6 +141,7 @@ export function MediaPicker({ label = 'Добавить файл', onSelect }: M
           </label>
 
           {loading && <small>Загружаем медиатеку...</small>}
+          {uploadError && <small className="field-error">{uploadError}</small>}
           {!loading && (
             <div className="media-picker-grid">
               {assets.map((asset) => (
@@ -109,7 +150,7 @@ export function MediaPicker({ label = 'Добавить файл', onSelect }: M
                   key={asset.id}
                   type="button"
                   onClick={() => {
-                    onSelect(asset.url, asset);
+                    onSelect(createMediaAssetRef(asset.id), asset);
                     setOpen(false);
                   }}
                 >

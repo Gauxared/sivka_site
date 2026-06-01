@@ -11,6 +11,7 @@ import {
   siteContent as initialSiteContent,
 } from '../data/mockData';
 import type { Booking, BookingRule, ContactInfo, GalleryItem, Horse, Review, RulesInfo, Service, SiteContent, Trainer } from '../types';
+import { replaceKnownMediaDataUrls } from '../utils/media';
 
 const SERVICES_KEY = 'orlov_admin_services';
 const GALLERY_KEY = 'orlov_admin_gallery';
@@ -43,6 +44,26 @@ function writeStorage<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function compactStorageKey(key: string) {
+  const rawValue = window.localStorage.getItem(key);
+  if (!rawValue) return;
+
+  try {
+    const parsedValue = JSON.parse(rawValue) as unknown;
+    const compactedValue = replaceKnownMediaDataUrls(parsedValue);
+    const nextValue = JSON.stringify(compactedValue);
+    if (nextValue !== rawValue) {
+      window.localStorage.setItem(key, nextValue);
+    }
+  } catch {
+    // Corrupted localStorage entries are handled by readStorage when the section is opened.
+  }
+}
+
+export function compactEditableMediaReferences() {
+  [SERVICES_KEY, GALLERY_KEY, HORSES_KEY, TRAINERS_KEY, SITE_CONTENT_KEY].forEach(compactStorageKey);
+}
+
 function normalizeService(service: Service): Service {
   return {
     ...service,
@@ -52,6 +73,7 @@ function normalizeService(service: Service): Service {
 }
 
 export function getEditableServices(): Service[] {
+  compactEditableMediaReferences();
   return readStorage<Service[]>(SERVICES_KEY, initialServices).map(normalizeService);
 }
 
@@ -61,6 +83,7 @@ export function getEditableSiteContent(): SiteContent {
   if (migratedContent.siteName === 'ИП Орлова Н.И.') migratedContent.siteName = initialSiteContent.siteName;
   if (migratedContent.siteSubtitle === 'конно-спортивные услуги') migratedContent.siteSubtitle = initialSiteContent.siteSubtitle;
   if (migratedContent.homeEyebrow === 'г. Гурьевск · ИП Орлова Н.И.') migratedContent.homeEyebrow = initialSiteContent.homeEyebrow;
+  if (migratedContent.homeEyebrow?.includes('Гурьевск')) migratedContent.homeEyebrow = initialSiteContent.homeEyebrow;
   return {
     ...initialSiteContent,
     ...migratedContent,
@@ -140,7 +163,7 @@ export function saveEditableReviews(items: Review[]) {
 
 export function getEditableContacts(): ContactInfo {
   const contacts = readStorage<ContactInfo>(CONTACTS_KEY, initialContacts);
-  if (contacts.address === 'г. Гурьевск, территория конно-спортивного клуба ИП Орлова Н.И.') {
+  if (contacts.address === 'г. Гурьевск, территория конно-спортивного клуба ИП Орлова Н.И.' || contacts.address.includes('Гурьевск')) {
     return { ...contacts, address: initialContacts.address };
   }
   return contacts;
