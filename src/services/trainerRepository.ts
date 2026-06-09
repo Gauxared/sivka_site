@@ -1,5 +1,7 @@
 import { trainers as initialTrainers } from '../data/mockData';
 import type { ApiResponse, Trainer } from '../types';
+import * as backend from './backendApi';
+import { env } from './env';
 
 const TRAINERS_KEY = 'orlov_admin_trainers';
 
@@ -38,14 +40,24 @@ function saveStoredTrainers(items: Trainer[]) {
 }
 
 export async function getTrainers(): Promise<ApiResponse<Trainer[]>> {
+  if (!env.useMockApi) return backend.getTrainers();
   return respond(getStoredTrainers());
 }
 
 export async function getTrainerById(id: string): Promise<ApiResponse<Trainer | undefined>> {
+  if (!env.useMockApi) return backend.getTrainers().then((response) => ({ data: response.data.find((trainer) => trainer.id === id) }));
   return respond(getStoredTrainers().find((trainer) => trainer.id === id));
 }
 
 export async function createTrainer(data: Omit<Trainer, 'id'>): Promise<ApiResponse<Trainer>> {
+  if (!env.useMockApi) {
+    const trainer: Trainer = {
+      ...data,
+      id: `trainer-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    };
+    return backend.createTrainer(trainer);
+  }
+
   const trainer: Trainer = {
     ...data,
     id: `trainer-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -55,6 +67,7 @@ export async function createTrainer(data: Omit<Trainer, 'id'>): Promise<ApiRespo
 }
 
 export async function updateTrainer(id: string, data: Partial<Trainer>): Promise<ApiResponse<Trainer | undefined>> {
+  if (!env.useMockApi) return backend.updateTrainer(id, data);
   let updatedTrainer: Trainer | undefined;
   const next = getStoredTrainers().map((trainer) => {
     if (trainer.id !== id) return trainer;
@@ -66,6 +79,7 @@ export async function updateTrainer(id: string, data: Partial<Trainer>): Promise
 }
 
 export async function deleteTrainer(id: string): Promise<ApiResponse<{ id: string }>> {
+  if (!env.useMockApi) return backend.deleteTrainer(id);
   saveStoredTrainers(getStoredTrainers().filter((trainer) => trainer.id !== id));
   return respond({ id });
 }

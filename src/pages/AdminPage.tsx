@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowDown, ArrowUp, CalendarDays, LogOut, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ImagePositionControl } from '../components/admin/ImagePositionControl';
 import { ImageUploadButton } from '../components/admin/ImageUploadButton';
 import { Button, ButtonLink } from '../components/ui/Button';
 import { SectionTitle } from '../components/ui/SectionTitle';
@@ -33,13 +34,22 @@ import {
   saveEditableRulesInfo,
   saveEditableServices,
   saveEditableSiteContent,
+  verifyBackendAdminSession,
 } from '../services/adminContent';
 import { checkBookingAvailability, getAvailableTimeSlots } from '../services/availabilityService';
-import { assignBookingTrainer, updateBookingTrainerStatus } from '../services/api';
-import type { Booking, BookingRule, BookingRuleType, BookingStatus, ContactInfo, GalleryItem, Horse, HorseStatus, Review, RulesInfo, Service, SiteContent, Trainer, TrainerStatus } from '../types';
-import { getMediaStyle } from '../utils/media';
+import { assignBookingTrainer, updateBookingTrainerStatus, updateSiteContent as saveSiteContentPatch } from '../services/api';
+import { getAdminSnapshot, resetBackendData, saveAdminSnapshot, type AdminSnapshot } from '../services/backendApi';
+import { env } from '../services/env';
+import {
+  getStaffAccounts,
+  requestBrowserNotificationPermission,
+  saveStaffAccounts,
+  syncStaffAccountsWithTrainers,
+} from '../services/staffSettings';
+import type { Booking, BookingRule, BookingRuleType, BookingStatus, ContactInfo, GalleryItem, Horse, HorseStatus, Review, RulesInfo, Service, SiteContent, StaffAccount, StaffNotificationSettings, Trainer, TrainerStatus } from '../types';
+import { getMediaStyle, getPhotoMediaStyle } from '../utils/media';
 
-type AdminTab = 'appearance' | 'services' | 'gallery' | 'horses' | 'trainers' | 'calendar' | 'content' | 'rules';
+type AdminTab = 'appearance' | 'services' | 'gallery' | 'horses' | 'trainers' | 'staff' | 'calendar' | 'content' | 'rules';
 
 const categoryOptions: { value: GalleryItem['category']; label: string }[] = [
   { value: 'lessons', label: 'Занятия' },
@@ -92,6 +102,12 @@ const weekDayOptions = [
   { value: 0, label: 'Вс' },
 ];
 
+const staffRoleLabels = {
+  admin: 'Администратор',
+  manager: 'Управляющий',
+  trainer: 'Тренер',
+};
+
 const splitLines = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean);
 const joinLines = (items: string[]) => items.join('\n');
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -139,7 +155,7 @@ function configNumberArray(config: Record<string, unknown>, key: string) {
 
 export function AdminPage() {
   const [authorized, setAuthorized] = useState(isAdminAuthorized());
-  const [login, setLogin] = useState('admin');
+  const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('appearance');
@@ -148,6 +164,7 @@ export function AdminPage() {
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>(getEditableGalleryItems());
   const [horses, setHorses] = useState<Horse[]>(getEditableHorses());
   const [trainers, setTrainers] = useState<Trainer[]>(getEditableTrainers());
+  const [staffAccounts, setStaffAccounts] = useState<StaffAccount[]>(() => getStaffAccounts(getEditableTrainers()));
   const [bookings, setBookings] = useState<Booking[]>(getEditableBookings());
   const [bookingRules, setBookingRules] = useState<BookingRule[]>(getEditableBookingRules());
   const [reviews, setReviews] = useState<Review[]>(getEditableReviews());
@@ -163,21 +180,105 @@ export function AdminPage() {
   const dayBookings = bookings.filter((booking) => booking.date === calendarDate).sort((a, b) => a.startTime.localeCompare(b.startTime));
   const previewSlots = calendarServiceId ? getAvailableTimeSlots(calendarServiceId, calendarDate) : [];
 
-  const handleLogin = (event: FormEvent) => {
+  const applySnapshot = (snapshot: AdminSnapshot) => {
+    setSiteContent(snapshot.siteContent);
+    setServices(snapshot.services);
+    setGalleryItems(snapshot.galleryItems);
+    setHorses(snapshot.horses);
+    setTrainers(snapshot.trainers);
+    setStaffAccounts(snapshot.staffAccounts);
+    setBookings(snapshot.bookings);
+    setBookingRules(snapshot.bookingRules);
+    setReviews(snapshot.reviews);
+    setContacts(snapshot.contacts);
+    setRulesInfo(snapshot.rulesInfo);
+    setCalendarServiceId(snapshot.services[0]?.id || '');
+  };
+
+  useEffect(() => {
+    if (!authorized || env.useMockApi) return;
+    let cancelled = false;
+
+    const loadSnapshot = async () => {
+      try {
+        const sessionOk = await verifyBackendAdminSession();
+        if (!sessionOk) {
+          if (!cancelled) {
+            setAuthorized(false);
+            setSavedMessage('Сессия администратора истекла. Войдите заново.');
+          }
+          return;
+        }
+
+        const response = await getAdminSnapshot();
+        if (!cancelled) applySnapshot(response.data);
+      } catch (error) {
+        if (!cancelled) {
+          setAuthorized(false);
+          logoutAdmin();
+          setSavedMessage(error instanceof Error ? error.message : 'Не удалось загрузить данные из backend. Войдите заново.');
+        }
+      }
+    };
+
+    void loadSnapshot();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorized]);
+
+  const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
-    if (loginAdmin(login, password)) {
+    if (await loginAdmin(login, password)) {
       setAuthorized(true);
       setLoginError('');
       return;
     }
-    setLoginError('Неверный логин или пароль. Используйте admin / admin123.');
+    setLoginError('Неверный логин или пароль администратора.');
   };
 
-  const saveAll = () => {
+  const saveAll = async () => {
+    const syncedStaffAccounts = syncStaffAccountsWithTrainers(staffAccounts, trainers);
+
+    if (!env.useMockApi) {
+      try {
+        const sessionOk = await verifyBackendAdminSession();
+        if (!sessionOk) {
+          setSavedMessage('Сессия администратора истекла или недействительна. Сохранение отменено. Пожалуйста, выполните вход и повторите.');
+          // keep admin UI state — do not forcibly logout here to avoid UX loops
+          return;
+        }
+
+        const response = await saveAdminSnapshot({
+          siteContent,
+          services,
+          galleryItems,
+          horses,
+          trainers,
+          staffAccounts: syncedStaffAccounts,
+          bookings,
+          bookingRules,
+          reviews,
+          contacts,
+          rulesInfo,
+        });
+        applySnapshot(response.data);
+        setSavedMessage('Изменения сохранены в SQLite через backend.');
+      } catch (error) {
+          // On error, do not force logout. Show clear message and allow admin to re-auth and retry.
+          const msg = error instanceof Error ? error.message : 'Не удалось сохранить изменения в backend.';
+          setSavedMessage(msg.includes('Сессия администратора') ? 'Сессия администратора истекла. Выполните вход и повторите.' : msg);
+      }
+      window.setTimeout(() => setSavedMessage(''), 3500);
+      return;
+    }
+
     saveEditableServices(services);
     saveEditableGalleryItems(galleryItems);
     saveEditableHorses(horses);
     saveEditableTrainers(trainers);
+    saveStaffAccounts(syncedStaffAccounts);
+    setStaffAccounts(syncedStaffAccounts);
     saveEditableBookings(bookings);
     saveEditableBookingRules(bookingRules);
     saveEditableReviews(reviews);
@@ -188,12 +289,26 @@ export function AdminPage() {
     window.setTimeout(() => setSavedMessage(''), 3500);
   };
 
-  const resetAll = () => {
+  const resetAll = async () => {
+    if (!env.useMockApi) {
+      try {
+        await resetBackendData();
+        const response = await getAdminSnapshot();
+        applySnapshot(response.data);
+        setSavedMessage('Данные в SQLite восстановлены из seed.');
+      } catch {
+        setSavedMessage('Не удалось восстановить данные backend.');
+      }
+      window.setTimeout(() => setSavedMessage(''), 3500);
+      return;
+    }
+
     resetEditableContent();
     setServices(getEditableServices());
     setGalleryItems(getEditableGalleryItems());
     setHorses(getEditableHorses());
     setTrainers(getEditableTrainers());
+    setStaffAccounts(getStaffAccounts(getEditableTrainers()));
     setBookings(getEditableBookings());
     setBookingRules(getEditableBookingRules());
     setReviews(getEditableReviews());
@@ -212,6 +327,24 @@ export function AdminPage() {
     setSiteContent((current) => ({ ...current, [field]: value }));
   };
 
+  const saveAppearance = async () => {
+    if (!env.useMockApi) {
+      try {
+        const response = await saveSiteContentPatch(siteContent);
+        setSiteContent(response.data);
+        setSavedMessage('Оформление сохранено в backend.');
+      } catch (error) {
+        setSavedMessage(error instanceof Error ? error.message : 'Не удалось сохранить оформление в backend.');
+      }
+      window.setTimeout(() => setSavedMessage(''), 3500);
+      return;
+    }
+
+    saveEditableSiteContent(siteContent);
+    setSavedMessage('Оформление сохранено в браузере.');
+    window.setTimeout(() => setSavedMessage(''), 3500);
+  };
+
   const updateGalleryItem = <K extends keyof GalleryItem>(id: string, field: K, value: GalleryItem[K]) => {
     setGalleryItems((current) => current.map((item) => (item.id === id ? { ...item, [field]: value } : item)));
   };
@@ -221,7 +354,66 @@ export function AdminPage() {
   };
 
   const updateTrainer = <K extends keyof Trainer>(id: string, field: K, value: Trainer[K]) => {
-    setTrainers((current) => current.map((trainer) => (trainer.id === id ? { ...trainer, [field]: value } : trainer)));
+    setTrainers((current) => {
+      const nextTrainers = current.map((trainer) => (trainer.id === id ? { ...trainer, [field]: value } : trainer));
+      if (field === 'fullName' || field === 'email' || field === 'phone') {
+        setStaffAccounts((accounts) => syncStaffAccountsWithTrainers(accounts, nextTrainers));
+      }
+      return nextTrainers;
+    });
+  };
+
+  const addTrainer = () => {
+    const trainer = createEmptyTrainer(services.map((service) => service.id));
+    setTrainers((current) => {
+      const nextTrainers = [trainer, ...current];
+      setStaffAccounts((accounts) => syncStaffAccountsWithTrainers(accounts, nextTrainers));
+      return nextTrainers;
+    });
+  };
+
+  const deleteTrainer = (trainerId: string) => {
+    setTrainers((current) => {
+      const nextTrainers = current.filter((item) => item.id !== trainerId);
+      setStaffAccounts((accounts) => syncStaffAccountsWithTrainers(accounts, nextTrainers));
+      return nextTrainers;
+    });
+  };
+
+  const updateStaffAccount = <K extends keyof StaffAccount>(id: string, field: K, value: StaffAccount[K]) => {
+    setStaffAccounts((current) => current.map((account) => (account.id === id ? { ...account, [field]: value } : account)));
+  };
+
+  const updateStaffNotification = <K extends keyof StaffNotificationSettings>(
+    id: string,
+    field: K,
+    value: StaffNotificationSettings[K],
+  ) => {
+    setStaffAccounts((current) =>
+      current.map((account) =>
+        account.id === id
+          ? {
+              ...account,
+              notificationSettings: {
+                ...account.notificationSettings,
+                [field]: value,
+              },
+            }
+          : account,
+      ),
+    );
+  };
+
+  const handleEnableBrowserNotifications = async () => {
+    const permission = await requestBrowserNotificationPermission();
+    if (permission === 'granted') {
+      setSavedMessage('Уведомления браузера разрешены. Включите канал у нужных сотрудников и сохраните изменения.');
+    } else if (permission === 'denied') {
+      setSavedMessage('Браузер заблокировал уведомления. Разрешите их в настройках сайта.');
+    } else {
+      setSavedMessage('Этот браузер не поддерживает локальные уведомления.');
+    }
+    window.setTimeout(() => setSavedMessage(''), 3500);
   };
 
   const updateBooking = <K extends keyof Booking>(id: string, field: K, value: Booking[K]) => {
@@ -462,7 +654,7 @@ export function AdminPage() {
           <label><span>Пароль</span><input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" /></label>
           {loginError && <small className="standalone-error">{loginError}</small>}
           <Button type="submit">Войти</Button>
-          <p className="form-note">Демо-доступ: admin / admin123</p>
+          <p className="form-note">Учетные данные выдаются администратором клуба.</p>
         </form>
       </section>
     );
@@ -493,6 +685,7 @@ export function AdminPage() {
           ['gallery', 'Галерея'],
           ['horses', 'Лошади'],
           ['trainers', 'Тренеры'],
+          ['staff', 'Доступы'],
           ['calendar', 'Календарь'],
           ['content', 'Контент'],
           ['rules', 'Правила записи'],
@@ -507,14 +700,14 @@ export function AdminPage() {
         <div className="admin-list">
           <div className="admin-list-header">
             <h2>Оформление главной страницы</h2>
-            <Button variant="secondary" onClick={() => saveEditableSiteContent(siteContent)}>
+            <Button variant="secondary" onClick={() => void saveAppearance()}>
               <Save size={18} /> Сохранить только оформление
             </Button>
           </div>
 
           <article className="admin-editor appearance-editor">
             <div className="appearance-preview">
-              <div className="appearance-preview-media" style={getMediaStyle(siteContent.homeHeroImage)}>
+              <div className="appearance-preview-media" style={getMediaStyle(siteContent.homeHeroImage, siteContent.homeHeroImagePosition, siteContent.homeHeroImageScale)}>
                 <span>{siteContent.siteName}</span>
               </div>
               <div className="appearance-preview-content">
@@ -549,16 +742,15 @@ export function AdminPage() {
                 <span>Фото главной или CSS-gradient</span>
                 <input value={siteContent.homeHeroImage} onChange={(event) => updateSiteContent('homeHeroImage', event.target.value)} />
               </label>
-              <label>
-                <span>Позиция фото</span>
-                <select value={siteContent.homeHeroImagePosition} onChange={(event) => updateSiteContent('homeHeroImagePosition', event.target.value)}>
-                  <option value="center">По центру</option>
-                  <option value="top">Сверху</option>
-                  <option value="bottom">Снизу</option>
-                  <option value="left center">Слева</option>
-                  <option value="right center">Справа</option>
-                </select>
-              </label>
+              <ImagePositionControl
+                className="admin-wide"
+                image={siteContent.homeHeroImage}
+                value={siteContent.homeHeroImagePosition}
+                scale={siteContent.homeHeroImageScale}
+                label="Позиция фото"
+                onChange={(position) => updateSiteContent('homeHeroImagePosition', position)}
+                onScaleChange={(nextScale) => updateSiteContent('homeHeroImageScale', nextScale)}
+              />
               <ImageUploadButton label="Добавить файл главной" onUpload={(dataUrl) => updateSiteContent('homeHeroImage', dataUrl)} />
               <label>
                 <span>Основной цвет</span>
@@ -605,7 +797,7 @@ export function AdminPage() {
           </div>
           {services.map((service) => (
             <article className="admin-editor" key={service.id}>
-              <div className="admin-preview" style={getMediaStyle(service.image, { fit: 'contain' })}><span>{service.title}</span></div>
+              <div className="admin-preview" style={getPhotoMediaStyle(service.image, service.imagePosition, service.imageScale)}><span>{service.image ? service.title : 'Фото не выбрано'}</span></div>
               <div className="admin-form-grid">
                 <label><span>Название</span><input value={service.title} onChange={(event) => updateService(service.id, 'title', event.target.value)} /></label>
                 <label><span>Цена</span><input value={service.price} onChange={(event) => updateService(service.id, 'price', event.target.value)} /></label>
@@ -619,8 +811,18 @@ export function AdminPage() {
                 <label><span>Ограничения</span><textarea value={joinLines(service.restrictions)} onChange={(event) => updateService(service.id, 'restrictions', splitLines(event.target.value))} rows={4} /></label>
                 <label><span>Кому подходит</span><textarea value={joinLines(service.suitableFor)} onChange={(event) => updateService(service.id, 'suitableFor', splitLines(event.target.value))} rows={4} /></label>
                 <label><span>Правила безопасности</span><textarea value={joinLines(service.safetyRules)} onChange={(event) => updateService(service.id, 'safetyRules', splitLines(event.target.value))} rows={4} /></label>
-                <label><span>URL изображения или CSS-gradient</span><input value={service.image} onChange={(event) => updateService(service.id, 'image', event.target.value)} /></label>
-                <ImageUploadButton label="Добавить файл фото" onUpload={(dataUrl) => updateService(service.id, 'image', dataUrl)} />
+                <div className="admin-wide admin-photo-field">
+                  <span className="field-title">Фото услуги</span>
+                  <ImageUploadButton label="Загрузить фото" onUpload={(dataUrl) => updateService(service.id, 'image', dataUrl)} />
+                </div>
+                <ImagePositionControl
+                  className="admin-wide"
+                  image={service.image}
+                  value={service.imagePosition}
+                  scale={service.imageScale}
+                  onChange={(position) => updateService(service.id, 'imagePosition', position)}
+                  onScaleChange={(nextScale) => updateService(service.id, 'imageScale', nextScale)}
+                />
                 <label className="checkbox-label"><input type="checkbox" checked={service.isAvailable} onChange={(event) => updateService(service.id, 'isAvailable', event.target.checked)} /><span>Услуга доступна для записи</span></label>
               </div>
               <Button variant="ghost" className="danger-button" onClick={() => setServices((current) => current.filter((item) => item.id !== service.id))}><Trash2 size={18} /> Удалить услугу</Button>
@@ -634,12 +836,22 @@ export function AdminPage() {
           <div className="admin-list-header"><h2>Фотографии галереи</h2><Button onClick={() => setGalleryItems((current) => [createEmptyGalleryItem(), ...current])}><Plus size={18} /> Добавить фото</Button></div>
           {galleryItems.map((item) => (
             <article className="admin-editor compact-editor" key={item.id}>
-              <div className="admin-preview" style={getMediaStyle(item.image)}><span>{item.title}</span></div>
+              <div className="admin-preview" style={getMediaStyle(item.image, item.imagePosition, item.imageScale)}><span>{item.title}</span></div>
               <div className="admin-form-grid">
                 <label><span>Название</span><input value={item.title} onChange={(event) => updateGalleryItem(item.id, 'title', event.target.value)} /></label>
                 <label><span>Категория</span><select value={item.category} onChange={(event) => updateGalleryItem(item.id, 'category', event.target.value as GalleryItem['category'])}>{categoryOptions.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select></label>
-                <label><span>URL изображения или CSS-gradient</span><input value={item.image} onChange={(event) => updateGalleryItem(item.id, 'image', event.target.value)} /></label>
-                <ImageUploadButton label="Добавить файл фото" onUpload={(dataUrl) => updateGalleryItem(item.id, 'image', dataUrl)} />
+                <div className="admin-wide admin-photo-field">
+                  <span className="field-title">Фото галереи</span>
+                  <ImageUploadButton label="Загрузить фото" onUpload={(dataUrl) => updateGalleryItem(item.id, 'image', dataUrl)} />
+                </div>
+                <ImagePositionControl
+                  className="admin-wide"
+                  image={item.image}
+                  value={item.imagePosition}
+                  scale={item.imageScale}
+                  onChange={(position) => updateGalleryItem(item.id, 'imagePosition', position)}
+                  onScaleChange={(nextScale) => updateGalleryItem(item.id, 'imageScale', nextScale)}
+                />
               </div>
               <Button variant="ghost" className="danger-button" onClick={() => setGalleryItems((current) => current.filter((galleryItem) => galleryItem.id !== item.id))}><Trash2 size={18} /> Удалить фото</Button>
             </article>
@@ -653,7 +865,7 @@ export function AdminPage() {
           {horses.map((horse) => (
             <article className="admin-editor compact-editor" key={horse.id}>
               <div className="horse-admin-card">
-                <div className="horse-admin-photo" style={getMediaStyle(horse.image || '', { fit: 'contain' })}>
+                <div className="horse-admin-photo" style={getMediaStyle(horse.image || '')}>
                   <span>{horse.name}</span>
                 </div>
                 <div className="horse-admin-info">
@@ -681,11 +893,11 @@ export function AdminPage() {
 
       {activeTab === 'trainers' && (
         <div className="admin-list">
-          <div className="admin-list-header"><h2>Тренерский состав</h2><Button onClick={() => setTrainers((current) => [createEmptyTrainer(services.map((service) => service.id)), ...current])}><Plus size={18} /> Добавить тренера</Button></div>
+          <div className="admin-list-header"><h2>Тренерский состав</h2><Button onClick={addTrainer}><Plus size={18} /> Добавить тренера</Button></div>
           {trainers.map((trainer) => (
             <article className="admin-editor compact-editor" key={trainer.id}>
               <div className="horse-admin-card">
-                <div className="horse-admin-photo" style={getMediaStyle(trainer.photo || '', { fit: 'contain' })}>
+                <div className="horse-admin-photo" style={getMediaStyle(trainer.photo || '')}>
                   <span>{trainer.fullName}</span>
                 </div>
                 <div className="horse-admin-info">
@@ -711,9 +923,131 @@ export function AdminPage() {
                 <ImageUploadButton label="Добавить файл фото тренера" onUpload={(dataUrl) => updateTrainer(trainer.id, 'photo', dataUrl)} />
               </div>
 
-              <Button variant="ghost" className="danger-button" onClick={() => setTrainers((current) => current.filter((item) => item.id !== trainer.id))}><Trash2 size={18} /> Удалить тренера</Button>
+              <Button variant="ghost" className="danger-button" onClick={() => deleteTrainer(trainer.id)}><Trash2 size={18} /> Удалить тренера</Button>
             </article>
           ))}
+        </div>
+      )}
+
+      {activeTab === 'staff' && (
+        <div className="admin-list">
+          <div className="admin-list-header">
+            <div>
+              <h2>Доступы сотрудников и уведомления</h2>
+              <p className="form-note">Пароли в демо-версии сохраняются в браузере. В реальном backend их нужно хранить только в виде хешей.</p>
+            </div>
+            <Button variant="secondary" onClick={() => void handleEnableBrowserNotifications()}>
+              Разрешить уведомления браузера
+            </Button>
+          </div>
+
+          {staffAccounts.map((account) => {
+            const linkedTrainer = account.trainerId ? trainerById.get(account.trainerId) : undefined;
+            const displayName = linkedTrainer?.fullName || account.displayName;
+            const settings = account.notificationSettings;
+            const notificationsAvailable = account.role !== 'trainer';
+
+            return (
+              <article className="admin-editor compact-editor" key={account.id}>
+                <div className="horse-admin-card">
+                  <div className="horse-admin-info">
+                    <h3>{displayName}</h3>
+                    <p>{staffRoleLabels[account.role]}</p>
+                    <span>{account.role === 'trainer' ? 'Вход через выбор тренера' : `Логин: ${account.login}`}</span>
+                  </div>
+                </div>
+
+                <div className="admin-form-grid">
+                  <label>
+                    <span>Логин</span>
+                    <input
+                      value={account.login}
+                      disabled={account.role === 'trainer'}
+                      onChange={(event) => updateStaffAccount(account.id, 'login', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>{env.useMockApi ? 'Пароль' : 'Новый пароль'}</span>
+                    <input
+                      type="password"
+                      value={account.password}
+                      placeholder={env.useMockApi ? undefined : 'Оставьте пустым, чтобы не менять'}
+                      onChange={(event) => updateStaffAccount(account.id, 'password', event.target.value)}
+                    />
+                  </label>
+                  {notificationsAvailable ? (
+                    <>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={settings.inApp}
+                          onChange={(event) => updateStaffNotification(account.id, 'inApp', event.target.checked)}
+                        />
+                        <span>Показывать в центре уведомлений</span>
+                      </label>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={settings.browser}
+                          onChange={(event) => updateStaffNotification(account.id, 'browser', event.target.checked)}
+                        />
+                        <span>Показывать уведомления браузера</span>
+                      </label>
+                      <label>
+                        <span>Email для уведомлений</span>
+                        <input
+                          value={settings.email || ''}
+                          onChange={(event) => updateStaffNotification(account.id, 'email', event.target.value)}
+                        />
+                      </label>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={settings.emailEnabled}
+                          onChange={(event) => updateStaffNotification(account.id, 'emailEnabled', event.target.checked)}
+                        />
+                        <span>Email включен после backend-интеграции</span>
+                      </label>
+                      <label>
+                        <span>Telegram</span>
+                        <input
+                          value={settings.telegram || ''}
+                          onChange={(event) => updateStaffNotification(account.id, 'telegram', event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>WhatsApp/телефон</span>
+                        <input
+                          value={settings.whatsapp || ''}
+                          onChange={(event) => updateStaffNotification(account.id, 'whatsapp', event.target.value)}
+                        />
+                      </label>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={settings.telegramEnabled}
+                          onChange={(event) => updateStaffNotification(account.id, 'telegramEnabled', event.target.checked)}
+                        />
+                        <span>Telegram включен после backend-интеграции</span>
+                      </label>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={settings.whatsappEnabled}
+                          onChange={(event) => updateStaffNotification(account.id, 'whatsappEnabled', event.target.checked)}
+                        />
+                        <span>WhatsApp включен после backend-интеграции</span>
+                      </label>
+                    </>
+                  ) : (
+                    <div className="state-box admin-wide">
+                      У тренера уведомления отключены: актуальные занятия отображаются в расписании на день и неделю.
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
 
@@ -1009,6 +1343,3 @@ export function AdminPage() {
     </section>
   );
 }
-
-
-

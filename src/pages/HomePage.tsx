@@ -1,15 +1,15 @@
 import { ArrowDown, ArrowRight, ArrowUp, Eye, EyeOff, HeartHandshake, ShieldCheck, Sprout } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { EditableTextField } from '../components/admin/EditableTextField';
+import { ImagePositionControl } from '../components/admin/ImagePositionControl';
 import { ImageUploadButton } from '../components/admin/ImageUploadButton';
 import { ReviewCard } from '../components/reviews/ReviewCard';
 import { ServiceCard } from '../components/services/ServiceCard';
 import { ButtonLink } from '../components/ui/Button';
 import { SectionTitle } from '../components/ui/SectionTitle';
 import { ErrorState, LoadingState } from '../components/ui/States';
-import { getEditableSiteContent, isAdminAuthorized, isAdminEditMode, saveEditableSiteContent } from '../services/adminContent';
+import { getEditableSiteContent, isAdminAuthorized, isAdminEditMode } from '../services/adminContent';
 import { getPageContent, updateContentBlock } from '../services/contentRepository';
-import { getReviews, getServices, getSiteContent } from '../services/api';
+import { getReviews, getServices, getSiteContent, updateSiteContent as saveSiteContentPatch } from '../services/api';
 import type { ContentBlock, Review, Service, SiteContent } from '../types';
 import { getMediaStyle } from '../utils/media';
 
@@ -81,7 +81,12 @@ export function HomePage() {
   const updateSiteContent = <K extends keyof SiteContent>(field: K, value: SiteContent[K]) => {
     const nextContent = { ...getEditableSiteContent(), ...siteContent, [field]: value } as SiteContent;
     setSiteContent(nextContent);
-    saveEditableSiteContent(nextContent);
+    void saveSiteContentPatch({ [field]: value } as Partial<SiteContent>)
+      .then((response) => {
+        if (response.data) setSiteContent(response.data);
+        window.dispatchEvent(new Event('orlov-content-updated'));
+      })
+      .catch(() => setSiteContent(siteContent));
   };
 
   const heroBlock = useMemo(() => homeBlocks.find((block) => block.id === 'home-hero'), [homeBlocks]);
@@ -176,7 +181,7 @@ export function HomePage() {
           </div>
           <div
             className="hero-visual hero-photo"
-            style={{ ...getMediaStyle(siteContent?.homeHeroImage || ''), backgroundPosition: siteContent?.homeHeroImagePosition || 'center' }}
+            style={getMediaStyle(siteContent?.homeHeroImage || '', siteContent?.homeHeroImagePosition, siteContent?.homeHeroImageScale)}
             aria-label="Главное изображение конно-спортивной услуги"
           >
             <div className="hero-visual-content">
@@ -187,53 +192,50 @@ export function HomePage() {
                 <strong>Настройки главного блока</strong>
                 <label>
                   <span>Надзаголовок</span>
-                  <EditableTextField
+                  <input
                     value={heroBlock?.eyebrow || siteContent.homeEyebrow}
-                    onCommit={(value) => {
-                      updateSiteContent('homeEyebrow', value);
-                      void updateBlockTextField(heroBlock, 'eyebrow', value);
+                    onChange={(event) => {
+                      updateSiteContent('homeEyebrow', event.target.value);
+                      void updateBlockTextField(heroBlock, 'eyebrow', event.target.value);
                     }}
                   />
                 </label>
                 <label>
                   <span>Заголовок</span>
-                  <EditableTextField
+                  <textarea
                     value={heroBlock?.title || siteContent.homeHeroTitle}
-                    onCommit={(value) => {
-                      updateSiteContent('homeHeroTitle', value);
-                      void updateBlockTextField(heroBlock, 'title', value);
+                    onChange={(event) => {
+                      updateSiteContent('homeHeroTitle', event.target.value);
+                      void updateBlockTextField(heroBlock, 'title', event.target.value);
                     }}
-                    multiline
                     rows={2}
                   />
                 </label>
                 <label>
                   <span>Текст</span>
-                  <EditableTextField
+                  <textarea
                     value={heroBlock?.text || siteContent.homeHeroText}
-                    onCommit={(value) => {
-                      updateSiteContent('homeHeroText', value);
-                      void updateBlockTextField(heroBlock, 'text', value);
+                    onChange={(event) => {
+                      updateSiteContent('homeHeroText', event.target.value);
+                      void updateBlockTextField(heroBlock, 'text', event.target.value);
                     }}
-                    multiline
                     rows={3}
                   />
                 </label>
                 <label>
                   <span>Фон: URL, gradient или data-url</span>
-                  <EditableTextField value={siteContent.homeHeroImage} onCommit={(value) => updateSiteContent('homeHeroImage', value)} />
+                  <input value={siteContent.homeHeroImage} onChange={(event) => updateSiteContent('homeHeroImage', event.target.value)} />
                 </label>
                 <ImageUploadButton label="Добавить файл фона" onUpload={(dataUrl) => updateSiteContent('homeHeroImage', dataUrl)} />
-                <label>
-                  <span>Позиция фона</span>
-                  <select value={siteContent.homeHeroImagePosition} onChange={(event) => updateSiteContent('homeHeroImagePosition', event.target.value)}>
-                    <option value="center">По центру</option>
-                    <option value="top">Сверху</option>
-                    <option value="bottom">Снизу</option>
-                    <option value="left center">Слева</option>
-                    <option value="right center">Справа</option>
-                  </select>
-                </label>
+                <ImagePositionControl
+                  compact
+                  image={siteContent.homeHeroImage}
+                  value={siteContent.homeHeroImagePosition}
+                  scale={siteContent.homeHeroImageScale}
+                  label="Позиция фона"
+                  onChange={(position) => updateSiteContent('homeHeroImagePosition', position)}
+                  onScaleChange={(nextScale) => updateSiteContent('homeHeroImageScale', nextScale)}
+                />
               </div>
             )}
           </div>
@@ -253,15 +255,15 @@ export function HomePage() {
               <strong>Редактирование блока услуг</strong>
               <label>
                 <span>Надзаголовок</span>
-                <EditableTextField value={servicesBlock?.eyebrow || ''} onCommit={(value) => void updateBlockTextField(servicesBlock, 'eyebrow', value)} />
+                <input value={servicesBlock?.eyebrow || ''} onChange={(event) => void updateBlockTextField(servicesBlock, 'eyebrow', event.target.value)} />
               </label>
               <label>
                 <span>Заголовок</span>
-                <EditableTextField value={servicesBlock?.title || ''} onCommit={(value) => void updateBlockTextField(servicesBlock, 'title', value)} />
+                <input value={servicesBlock?.title || ''} onChange={(event) => void updateBlockTextField(servicesBlock, 'title', event.target.value)} />
               </label>
               <label>
                 <span>Текст</span>
-                <EditableTextField multiline rows={2} value={servicesBlock?.text || ''} onCommit={(value) => void updateBlockTextField(servicesBlock, 'text', value)} />
+                <textarea rows={2} value={servicesBlock?.text || ''} onChange={(event) => void updateBlockTextField(servicesBlock, 'text', event.target.value)} />
               </label>
             </div>
           )}
@@ -297,15 +299,14 @@ export function HomePage() {
                     <div className="benefit-editor-row" key={benefit.id}>
                       <label>
                         <span>{benefit.title}</span>
-                        <EditableTextField
+                        <textarea
                           rows={2}
                           value={benefit.text}
-                          onCommit={(value) =>
+                          onChange={(event) =>
                             void updateBenefits(
-                              benefitItems.map((item) => (item.id === benefit.id ? { ...item, text: value } : item)),
+                              benefitItems.map((item) => (item.id === benefit.id ? { ...item, text: event.target.value } : item)),
                             )
                           }
-                          multiline
                         />
                       </label>
                       <div className="benefit-editor-actions">
@@ -336,24 +337,23 @@ export function HomePage() {
                   <strong>Редактирование блока доверия</strong>
                   <label>
                     <span>Заголовок</span>
-                    <EditableTextField
+                    <input
                       value={trustBlock.title || ''}
-                      onCommit={(value) => {
-                        updateSiteContent('trustTitle', value);
-                        void updateBlockTextField(trustBlock, 'title', value);
+                      onChange={(event) => {
+                        updateSiteContent('trustTitle', event.target.value);
+                        void updateBlockTextField(trustBlock, 'title', event.target.value);
                       }}
                     />
                   </label>
                   <label>
                     <span>Текст</span>
-                    <EditableTextField
+                    <textarea
                       rows={3}
                       value={trustBlock.text || ''}
-                      onCommit={(value) => {
-                        updateSiteContent('trustText', value);
-                        void updateBlockTextField(trustBlock, 'text', value);
+                      onChange={(event) => {
+                        updateSiteContent('trustText', event.target.value);
+                        void updateBlockTextField(trustBlock, 'text', event.target.value);
                       }}
-                      multiline
                     />
                   </label>
                 </div>
@@ -372,15 +372,15 @@ export function HomePage() {
               <strong>Редактирование блока отзывов</strong>
               <label>
                 <span>Надзаголовок</span>
-                <EditableTextField value={reviewsBlock?.eyebrow || ''} onCommit={(value) => void updateBlockTextField(reviewsBlock, 'eyebrow', value)} />
+                <input value={reviewsBlock?.eyebrow || ''} onChange={(event) => void updateBlockTextField(reviewsBlock, 'eyebrow', event.target.value)} />
               </label>
               <label>
                 <span>Заголовок</span>
-                <EditableTextField
+                <input
                   value={reviewsBlock?.title || ''}
-                  onCommit={(value) => {
-                    updateSiteContent('reviewsTitle', value);
-                    void updateBlockTextField(reviewsBlock, 'title', value);
+                  onChange={(event) => {
+                    updateSiteContent('reviewsTitle', event.target.value);
+                    void updateBlockTextField(reviewsBlock, 'title', event.target.value);
                   }}
                 />
               </label>

@@ -1,10 +1,11 @@
 import { CalendarDays, Clock, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { EditableTextField } from '../admin/EditableTextField';
+import { ImagePositionControl } from '../admin/ImagePositionControl';
 import { ImageUploadButton } from '../admin/ImageUploadButton';
-import { getEditableServices, isAdminAuthorized, isAdminEditMode as getAdminEditMode, saveEditableServices } from '../../services/adminContent';
+import { isAdminAuthorized, isAdminEditMode as getAdminEditMode } from '../../services/adminContent';
+import { updateService as saveServicePatch } from '../../services/api';
 import type { Service } from '../../types';
-import { getMediaStyle } from '../../utils/media';
+import { getPhotoMediaStyle } from '../../utils/media';
 import { ButtonLink } from '../ui/Button';
 
 interface ServiceCardProps {
@@ -12,8 +13,12 @@ interface ServiceCardProps {
 }
 
 export function ServiceCard({ service }: ServiceCardProps) {
-  const [adminEditMode, setAdminEditMode] = useState(isAdminAuthorized() && getAdminEditMode());
   const [editableService, setEditableService] = useState(service);
+  const [adminEditMode, setAdminEditMode] = useState(isAdminAuthorized() && getAdminEditMode());
+
+  useEffect(() => {
+    setEditableService(service);
+  }, [service]);
 
   useEffect(() => {
     const syncAdminState = () => setAdminEditMode(isAdminAuthorized() && getAdminEditMode());
@@ -21,37 +26,33 @@ export function ServiceCard({ service }: ServiceCardProps) {
     return () => window.removeEventListener('orlov-admin-state-updated', syncAdminState);
   }, []);
 
-  useEffect(() => {
-    setEditableService(service);
-  }, [service]);
-
   const updateService = <K extends keyof Service>(field: K, value: Service[K]) => {
-    setEditableService((current) => {
-      const nextService = { ...current, [field]: value };
-      const updatedServices = getEditableServices().map((item) => (item.id === service.id ? { ...item, ...nextService } : item));
-      saveEditableServices(updatedServices);
-      return nextService;
-    });
+    const nextService = { ...editableService, [field]: value };
+    setEditableService(nextService);
+    void saveServicePatch(nextService.id, { [field]: value } as Partial<Service>)
+      .then((response) => {
+        if (response.data) setEditableService(response.data);
+        window.dispatchEvent(new Event('orlov-content-updated'));
+      })
+      .catch(() => setEditableService(service));
   };
-
-  const visibleService = adminEditMode ? editableService : service;
 
   return (
     <article className="service-card service-card--catalog">
-      <div className="service-card-image" style={getMediaStyle(visibleService.image, { fit: 'contain' })} aria-hidden="true" />
+      <div className="service-card-image" style={getPhotoMediaStyle(editableService.image, editableService.imagePosition, editableService.imageScale)} aria-hidden="true" />
       <div className="service-card-body">
-        <h3>{visibleService.title}</h3>
-        <p>{visibleService.shortDescription}</p>
+        <h3>{editableService.title}</h3>
+        <p>{editableService.shortDescription}</p>
         <div className="service-card-facts">
-          <span><Clock size={15} /> {visibleService.duration}</span>
-          <span><Users size={15} /> {visibleService.ageLimit}</span>
+          <span><Clock size={15} /> {editableService.duration}</span>
+          <span><Users size={15} /> {editableService.ageLimit}</span>
         </div>
-        <strong className="service-card-price">{visibleService.price}</strong>
+        <strong className="service-card-price">{editableService.price}</strong>
         <div className="card-actions service-card-actions">
-          <ButtonLink to={`/services/${visibleService.id}`} variant="primary">
+          <ButtonLink to={`/services/${editableService.id}`} variant="primary">
             Подробнее
           </ButtonLink>
-          <ButtonLink to={`/booking?service=${visibleService.id}`} variant="secondary" aria-label={`Записаться на ${visibleService.title}`}>
+          <ButtonLink to={`/booking?service=${editableService.id}`} variant="secondary" aria-label={`Записаться на ${editableService.title}`}>
             <CalendarDays size={17} />
           </ButtonLink>
         </div>
@@ -60,17 +61,21 @@ export function ServiceCard({ service }: ServiceCardProps) {
             <strong>Быстрое редактирование</strong>
             <label>
               <span>Название</span>
-              <EditableTextField value={editableService.title} onCommit={(value) => updateService('title', value)} />
+              <input value={editableService.title} onChange={(event) => updateService('title', event.target.value)} />
             </label>
             <label>
               <span>Цена</span>
-              <EditableTextField value={editableService.price} onCommit={(value) => updateService('price', value)} />
-            </label>
-            <label>
-              <span>URL или gradient</span>
-              <EditableTextField value={editableService.image} onCommit={(value) => updateService('image', value)} />
+              <input value={editableService.price} onChange={(event) => updateService('price', event.target.value)} />
             </label>
             <ImageUploadButton label="Добавить файл фото" onUpload={(dataUrl) => updateService('image', dataUrl)} />
+            <ImagePositionControl
+              compact
+              image={editableService.image}
+              value={editableService.imagePosition}
+              scale={editableService.imageScale}
+              onChange={(position) => updateService('imagePosition', position)}
+              onScaleChange={(nextScale) => updateService('imageScale', nextScale)}
+            />
           </div>
         )}
       </div>

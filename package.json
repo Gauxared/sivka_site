@@ -1,10 +1,16 @@
 {
-  "name": "orlov-horse-club-client",
+  "name": "sivka-burka-site",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
+    "start:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1",
     "dev": "vite",
+    "backend:dev": "node backend/src/server.js",
+    "backend:test": "npm --prefix backend test",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

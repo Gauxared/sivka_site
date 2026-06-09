@@ -11,7 +11,10 @@ import {
   siteContent as initialSiteContent,
 } from '../data/mockData';
 import type { Booking, BookingRule, ContactInfo, GalleryItem, Horse, Review, RulesInfo, Service, SiteContent, Trainer } from '../types';
-import { replaceKnownMediaDataUrls } from '../utils/media';
+import { normalizeImagePosition } from '../utils/media';
+import { getCurrentStaffUser, loginStaff, logoutStaff } from './backendApi';
+import { env } from './env';
+import { resetStaffAccounts, verifyAdminCredentials } from './staffSettings';
 
 const SERVICES_KEY = 'orlov_admin_services';
 const GALLERY_KEY = 'orlov_admin_gallery';
@@ -44,36 +47,25 @@ function writeStorage<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
-function compactStorageKey(key: string) {
-  const rawValue = window.localStorage.getItem(key);
-  if (!rawValue) return;
-
-  try {
-    const parsedValue = JSON.parse(rawValue) as unknown;
-    const compactedValue = replaceKnownMediaDataUrls(parsedValue);
-    const nextValue = JSON.stringify(compactedValue);
-    if (nextValue !== rawValue) {
-      window.localStorage.setItem(key, nextValue);
-    }
-  } catch {
-    // Corrupted localStorage entries are handled by readStorage when the section is opened.
-  }
-}
-
-export function compactEditableMediaReferences() {
-  [SERVICES_KEY, GALLERY_KEY, HORSES_KEY, TRAINERS_KEY, SITE_CONTENT_KEY].forEach(compactStorageKey);
-}
-
 function normalizeService(service: Service): Service {
   return {
     ...service,
     durationMinutes: service.durationMinutes || 60,
     minAge: typeof service.minAge === 'number' ? service.minAge : 7,
+    imagePosition: normalizeImagePosition(service.imagePosition),
+    imageScale: typeof service.imageScale === 'number' ? service.imageScale : 100,
+  };
+}
+
+function normalizeGalleryItem(item: GalleryItem): GalleryItem {
+  return {
+    ...item,
+    imagePosition: normalizeImagePosition(item.imagePosition),
+    imageScale: typeof item.imageScale === 'number' ? item.imageScale : 100,
   };
 }
 
 export function getEditableServices(): Service[] {
-  compactEditableMediaReferences();
   return readStorage<Service[]>(SERVICES_KEY, initialServices).map(normalizeService);
 }
 
@@ -83,7 +75,7 @@ export function getEditableSiteContent(): SiteContent {
   if (migratedContent.siteName === 'ИП Орлова Н.И.') migratedContent.siteName = initialSiteContent.siteName;
   if (migratedContent.siteSubtitle === 'конно-спортивные услуги') migratedContent.siteSubtitle = initialSiteContent.siteSubtitle;
   if (migratedContent.homeEyebrow === 'г. Гурьевск · ИП Орлова Н.И.') migratedContent.homeEyebrow = initialSiteContent.homeEyebrow;
-  if (migratedContent.homeEyebrow?.includes('Гурьевск')) migratedContent.homeEyebrow = initialSiteContent.homeEyebrow;
+  if (migratedContent.homeEyebrow === 'г. Гурьевск · КТК "Сивка-Бурка"') migratedContent.homeEyebrow = initialSiteContent.homeEyebrow;
   return {
     ...initialSiteContent,
     ...migratedContent,
@@ -91,6 +83,7 @@ export function getEditableSiteContent(): SiteContent {
       ...initialSiteContent.pageCopies,
       ...(migratedContent.pageCopies || {}),
     },
+    homeHeroImageScale: typeof migratedContent.homeHeroImageScale === 'number' ? migratedContent.homeHeroImageScale : 100,
   };
 }
 
@@ -105,11 +98,11 @@ export function saveEditableServices(items: Service[]) {
 }
 
 export function getEditableGalleryItems(): GalleryItem[] {
-  return readStorage(GALLERY_KEY, initialGalleryItems);
+  return readStorage<GalleryItem[]>(GALLERY_KEY, initialGalleryItems).map(normalizeGalleryItem);
 }
 
 export function saveEditableGalleryItems(items: GalleryItem[]) {
-  writeStorage(GALLERY_KEY, items);
+  writeStorage(GALLERY_KEY, items.map(normalizeGalleryItem));
   window.dispatchEvent(new Event('orlov-content-updated'));
 }
 
@@ -163,7 +156,10 @@ export function saveEditableReviews(items: Review[]) {
 
 export function getEditableContacts(): ContactInfo {
   const contacts = readStorage<ContactInfo>(CONTACTS_KEY, initialContacts);
-  if (contacts.address === 'г. Гурьевск, территория конно-спортивного клуба ИП Орлова Н.И.' || contacts.address.includes('Гурьевск')) {
+  if (contacts.address === 'г. Гурьевск, территория конно-спортивного клуба ИП Орлова Н.И.') {
+    return { ...contacts, address: initialContacts.address };
+  }
+  if (contacts.address === 'г. Гурьевск, территория конно-спортивного клуба "Сивка-Бурка"') {
     return { ...contacts, address: initialContacts.address };
   }
   return contacts;
@@ -194,11 +190,30 @@ export function resetEditableContent() {
   window.localStorage.removeItem(REVIEWS_KEY);
   window.localStorage.removeItem(CONTACTS_KEY);
   window.localStorage.removeItem(RULES_INFO_KEY);
+  resetStaffAccounts();
   window.dispatchEvent(new Event('orlov-content-updated'));
 }
 
 export function isAdminAuthorized() {
   return window.sessionStorage.getItem(SESSION_KEY) === 'true';
+}
+
+export async function verifyBackendAdminSession() {
+  if (env.useMockApi) return isAdminAuthorized();
+
+  try {
+    const response = await getCurrentStaffUser();
+    const isAdmin = response.data?.role === 'admin';
+    if (!isAdmin) {
+      window.sessionStorage.removeItem(SESSION_KEY);
+      window.sessionStorage.removeItem(EDIT_MODE_KEY);
+    }
+    return isAdmin;
+  } catch {
+    window.sessionStorage.removeItem(SESSION_KEY);
+    window.sessionStorage.removeItem(EDIT_MODE_KEY);
+    return false;
+  }
 }
 
 export function isAdminEditMode() {
@@ -214,8 +229,20 @@ export function setAdminEditMode(enabled: boolean) {
   window.dispatchEvent(new Event('orlov-admin-state-updated'));
 }
 
-export function loginAdmin(login: string, password: string) {
-  const success = login.trim().toLowerCase() === 'admin' && password === 'admin123';
+export async function loginAdmin(login: string, password: string) {
+  if (!env.useMockApi) {
+    try {
+      const response = await loginStaff({ role: 'admin', login, password });
+      if (response.data.role !== 'admin') return false;
+      window.sessionStorage.setItem(SESSION_KEY, 'true');
+      window.dispatchEvent(new Event('orlov-admin-state-updated'));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const success = verifyAdminCredentials(login, password);
   if (success) {
     window.sessionStorage.setItem(SESSION_KEY, 'true');
     window.dispatchEvent(new Event('orlov-admin-state-updated'));
@@ -224,6 +251,7 @@ export function loginAdmin(login: string, password: string) {
 }
 
 export function logoutAdmin() {
+  if (!env.useMockApi) void logoutStaff().catch(() => undefined);
   window.sessionStorage.removeItem(SESSION_KEY);
   window.sessionStorage.removeItem(EDIT_MODE_KEY);
   window.dispatchEvent(new Event('orlov-admin-state-updated'));
@@ -238,7 +266,9 @@ export function createEmptyService(): Service {
     duration: '60 минут',
     durationMinutes: 60,
     price: 'по согласованию',
-    image: 'linear-gradient(135deg, #315734, #b67f4a)',
+    image: '',
+    imagePosition: '50% 50%',
+    imageScale: 100,
     ageLimit: 'по согласованию',
     minAge: 7,
     preparation: 'Уточняется администратором перед подтверждением заявки.',
@@ -254,7 +284,9 @@ export function createEmptyGalleryItem(): GalleryItem {
     id: `gallery-${Date.now()}`,
     title: 'Новая фотография',
     category: 'lessons',
-    image: 'linear-gradient(135deg, #264b32, #b78655)',
+    image: '',
+    imagePosition: '50% 50%',
+    imageScale: 100,
   };
 }
 

@@ -12,9 +12,12 @@ import {
   saveEditableBookingRules,
   saveEditableBookings,
   saveEditableContacts,
+  saveEditableGalleryItems,
   saveEditableHorses,
   saveEditableReviews,
   saveEditableRulesInfo,
+  saveEditableServices,
+  saveEditableSiteContent,
 } from './adminContent';
 import { checkBookingAvailability, createMockBooking, getAvailableDates, getAvailableTimeSlots } from './availabilityService';
 import { createNotification } from './notificationRepository';
@@ -50,8 +53,25 @@ export async function getServiceById(id: string): Promise<ApiResponse<Service | 
   return respond(getEditableServices().find((service) => service.id === id));
 }
 
+export async function updateService(id: string, data: Partial<Service>): Promise<ApiResponse<Service | undefined>> {
+  let updatedService: Service | undefined;
+  const services = getEditableServices().map((service) => {
+    if (service.id !== id) return service;
+    updatedService = { ...service, ...data, id: service.id };
+    return updatedService;
+  });
+  saveEditableServices(services);
+  return respond(updatedService);
+}
+
 export async function getSiteContent(): Promise<ApiResponse<SiteContent>> {
   return respond(getEditableSiteContent());
+}
+
+export async function updateSiteContent(data: Partial<SiteContent>): Promise<ApiResponse<SiteContent>> {
+  const nextContent = { ...getEditableSiteContent(), ...data };
+  saveEditableSiteContent(nextContent);
+  return respond(nextContent);
 }
 
 export async function createBookingRequest(data: BookingRequest): Promise<ApiResponse<{ requestId: string }>> {
@@ -62,6 +82,24 @@ export async function createBookingRequest(data: BookingRequest): Promise<ApiRes
   }
 
   const booking = createMockBooking(data);
+  await createNotification({
+    recipientRole: 'admin',
+    recipientId: 'admin-local',
+    type: 'booking_created',
+    channel: 'in_app',
+    title: 'Новая заявка',
+    message: `Новая заявка на ${booking.date} в ${booking.startTime}.`,
+    bookingId: booking.id,
+  });
+  await createNotification({
+    recipientRole: 'manager',
+    recipientId: 'manager-local',
+    type: 'booking_created',
+    channel: 'in_app',
+    title: 'Новая заявка',
+    message: `Новая заявка на ${booking.date} в ${booking.startTime}.`,
+    bookingId: booking.id,
+  });
 
   return {
     data: { requestId: booking.id },
@@ -143,18 +181,6 @@ export async function assignBookingTrainer(
   saveEditableBookings(bookings);
   const updatedBooking = bookings.find((booking) => booking.id === id);
 
-  if (updatedBooking?.assignedTrainerId) {
-    await createNotification({
-      recipientRole: 'trainer',
-      recipientId: updatedBooking.assignedTrainerId,
-      type: 'trainer_assigned',
-      channel: 'in_app',
-      title: 'Новая заявка назначена',
-      message: `Вам назначено занятие на ${updatedBooking.date} в ${updatedBooking.startTime}.`,
-      bookingId: updatedBooking.id,
-    });
-  }
-
   return respond(updatedBooking);
 }
 
@@ -174,6 +200,15 @@ export async function updateBookingTrainerStatus(
     await createNotification({
       recipientRole: 'admin',
       recipientId: 'admin-local',
+      type: 'trainer_response_required',
+      channel: 'in_app',
+      title: 'Статус тренера обновлен',
+      message: `Тренер обновил статус по заявке на ${updatedBooking.date} (${trainerStatus}).`,
+      bookingId: updatedBooking.id,
+    });
+    await createNotification({
+      recipientRole: 'manager',
+      recipientId: 'manager-local',
       type: 'trainer_response_required',
       channel: 'in_app',
       title: 'Статус тренера обновлен',
@@ -234,6 +269,28 @@ export async function getReviews(): Promise<ApiResponse<Review[]>> {
 
 export async function getGalleryItems(): Promise<ApiResponse<GalleryItem[]>> {
   return respond(getEditableGalleryItems());
+}
+
+export async function createGalleryItem(data: GalleryItem): Promise<ApiResponse<GalleryItem>> {
+  const item = { ...data, id: data.id || `gallery-${Date.now()}` };
+  saveEditableGalleryItems([item, ...getEditableGalleryItems()]);
+  return respond(item);
+}
+
+export async function updateGalleryItem(id: string, data: Partial<GalleryItem>): Promise<ApiResponse<GalleryItem | undefined>> {
+  let updatedItem: GalleryItem | undefined;
+  const nextItems = getEditableGalleryItems().map((item) => {
+    if (item.id !== id) return item;
+    updatedItem = { ...item, ...data, id: item.id };
+    return updatedItem;
+  });
+  saveEditableGalleryItems(nextItems);
+  return respond(updatedItem);
+}
+
+export async function deleteGalleryItem(id: string): Promise<ApiResponse<{ id: string }>> {
+  saveEditableGalleryItems(getEditableGalleryItems().filter((item) => item.id !== id));
+  return respond({ id });
 }
 
 export async function getContacts(): Promise<ApiResponse<ContactInfo>> {

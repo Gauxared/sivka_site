@@ -5,6 +5,9 @@ import {
   mediaFolders as initialMediaFolders,
 } from '../data/mockData';
 import type { ApiResponse, ContentBlock, ContentRevision, ManagedPageKey, MediaAsset, MediaFolder } from '../types';
+import { rememberMediaAsset, rememberMediaAssets } from '../utils/media';
+import { request } from './backendApi';
+import { env } from './env';
 
 const CONTENT_BLOCKS_KEY = 'orlov_content_blocks';
 const MEDIA_ASSETS_KEY = 'orlov_media_assets';
@@ -32,51 +35,13 @@ function readStorage<T>(key: string, fallback: T): T {
   }
 }
 
-function isQuotaError(error: unknown) {
-  return error instanceof DOMException && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
-}
-
 function writeStorage<T>(key: string, value: T) {
-  const serializedValue = JSON.stringify(value);
-
-  try {
-    window.localStorage.setItem(key, serializedValue);
-  } catch (error) {
-    if (!isQuotaError(error)) throw error;
-
-    window.localStorage.removeItem(CONTENT_REVISIONS_KEY);
-    window.localStorage.setItem(key, serializedValue);
-  }
-
+  window.localStorage.setItem(key, JSON.stringify(value));
   window.dispatchEvent(new Event('orlov-content-updated'));
 }
 
-function replaceOldLocation(value: string) {
-  return value.replace('г. Гурьевск', 'пгт. Шерегеш').replace('Гурьевск', 'пгт. Шерегеш');
-}
-
-function normalizeContentBlock(block: ContentBlock): ContentBlock {
-  const nextBlock = { ...block } as ContentBlock & { data?: Record<string, unknown> };
-
-  if (typeof nextBlock.eyebrow === 'string' && nextBlock.eyebrow.includes('Гурьевск')) {
-    nextBlock.eyebrow = replaceOldLocation(nextBlock.eyebrow);
-  }
-
-  if (nextBlock.data && typeof nextBlock.data === 'object' && !Array.isArray(nextBlock.data)) {
-    const nextData = { ...nextBlock.data };
-    Object.entries(nextData).forEach(([key, value]) => {
-      if (typeof value === 'string' && value.includes('Гурьевск')) {
-        nextData[key] = replaceOldLocation(value);
-      }
-    });
-    nextBlock.data = nextData;
-  }
-
-  return nextBlock;
-}
-
 function getStoredContentBlocks() {
-  return readStorage<ContentBlock[]>(CONTENT_BLOCKS_KEY, initialContentBlocks).map(normalizeContentBlock);
+  return readStorage<ContentBlock[]>(CONTENT_BLOCKS_KEY, initialContentBlocks);
 }
 
 function saveContentBlocks(items: ContentBlock[]) {
@@ -103,17 +68,6 @@ function saveContentRevisions(items: ContentRevision[]) {
   writeStorage(CONTENT_REVISIONS_KEY, items);
 }
 
-function sanitizeRevisionSnapshot(snapshot: unknown) {
-  return JSON.parse(
-    JSON.stringify(snapshot, (_key, value) => {
-      if (typeof value === 'string' && value.startsWith('data:image/')) {
-        return `[image omitted: ${Math.round(value.length / 1024)} KB]`;
-      }
-      return value;
-    }),
-  ) as unknown;
-}
-
 function upsertRevision(entityType: ContentRevision['entityType'], entityId: string, snapshot: unknown) {
   const nextRevision: ContentRevision = {
     id: `revision-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -121,16 +75,14 @@ function upsertRevision(entityType: ContentRevision['entityType'], entityId: str
     entityId,
     createdAt: new Date().toISOString(),
     createdBy: 'admin-local',
-    snapshot: sanitizeRevisionSnapshot(snapshot),
+    snapshot,
   };
-  saveContentRevisions([nextRevision, ...getStoredContentRevisions()].slice(0, 40));
-}
-
-export function compactContentStorage() {
-  window.localStorage.removeItem(CONTENT_REVISIONS_KEY);
+  saveContentRevisions([nextRevision, ...getStoredContentRevisions()]);
 }
 
 export async function getPageContent(pageKey: ManagedPageKey): Promise<ApiResponse<ContentBlock[]>> {
+  if (!env.useMockApi) return request<ContentBlock[]>(`/pages/${pageKey}/content`);
+
   const blocks = getStoredContentBlocks()
     .filter((block) => block.pageKey === pageKey)
     .sort((a, b) => a.order - b.order);
@@ -138,6 +90,8 @@ export async function getPageContent(pageKey: ManagedPageKey): Promise<ApiRespon
 }
 
 export async function createContentBlock(data: Omit<ContentBlock, 'id'>): Promise<ApiResponse<ContentBlock>> {
+  if (!env.useMockApi) return request<ContentBlock>('/content-blocks', { method: 'POST', body: JSON.stringify(data) });
+
   const block: ContentBlock = {
     ...data,
     id: `content-block-${Date.now()}`,
@@ -149,6 +103,8 @@ export async function createContentBlock(data: Omit<ContentBlock, 'id'>): Promis
 }
 
 export async function updateContentBlock(id: string, data: Partial<ContentBlock>): Promise<ApiResponse<ContentBlock | undefined>> {
+  if (!env.useMockApi) return request<ContentBlock | undefined>(`/content-blocks/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+
   let updatedBlock: ContentBlock | undefined;
   const nextBlocks = getStoredContentBlocks().map((block) => {
     if (block.id !== id) return block;
@@ -164,6 +120,8 @@ export async function updateContentBlock(id: string, data: Partial<ContentBlock>
 }
 
 export async function deleteContentBlock(id: string): Promise<ApiResponse<{ id: string }>> {
+  if (!env.useMockApi) return request<{ id: string }>(`/content-blocks/${id}`, { method: 'DELETE' });
+
   const currentBlocks = getStoredContentBlocks();
   const removed = currentBlocks.find((block) => block.id === id);
   const nextBlocks = currentBlocks.filter((block) => block.id !== id);
@@ -176,6 +134,10 @@ export async function deleteContentBlock(id: string): Promise<ApiResponse<{ id: 
 }
 
 export async function reorderContentBlocks(pageKey: ManagedPageKey, orderedIds: string[]): Promise<ApiResponse<ContentBlock[]>> {
+  if (!env.useMockApi) {
+    return request<ContentBlock[]>('/content-blocks/reorder', { method: 'POST', body: JSON.stringify({ pageKey, orderedIds }) });
+  }
+
   const pageSet = new Set(orderedIds);
   const currentBlocks = getStoredContentBlocks();
   const pageBlocks = currentBlocks.filter((block) => block.pageKey === pageKey);
@@ -200,17 +162,30 @@ export async function reorderContentBlocks(pageKey: ManagedPageKey, orderedIds: 
 }
 
 export async function getMediaAssets(): Promise<ApiResponse<MediaAsset[]>> {
+  if (!env.useMockApi) {
+    const response = await request<MediaAsset[]>('/media');
+    rememberMediaAssets(response.data);
+    return response;
+  }
+
   const assets = getStoredMediaAssets().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  rememberMediaAssets(assets);
   return respond(assets);
 }
 
 export async function getMediaFolders(): Promise<ApiResponse<MediaFolder[]>> {
+  if (!env.useMockApi) return request<MediaFolder[]>('/media-folders');
+
   const folders = getStoredMediaFolders().sort((a, b) => a.order - b.order);
   return respond(folders);
 }
 
 export async function createMediaAsset(data: Omit<MediaAsset, 'id' | 'createdAt'>): Promise<ApiResponse<MediaAsset>> {
-  compactContentStorage();
+  if (!env.useMockApi) {
+    const response = await request<MediaAsset>('/media', { method: 'POST', body: JSON.stringify(data) });
+    rememberMediaAsset(response.data);
+    return response;
+  }
 
   const asset: MediaAsset = {
     ...data,
@@ -219,11 +194,14 @@ export async function createMediaAsset(data: Omit<MediaAsset, 'id' | 'createdAt'
   };
   const nextAssets = [asset, ...getStoredMediaAssets()];
   saveMediaAssets(nextAssets);
+  rememberMediaAsset(asset);
   upsertRevision('gallery', asset.id, asset);
   return respond(asset);
 }
 
 export async function updateMediaAsset(id: string, data: Partial<MediaAsset>): Promise<ApiResponse<MediaAsset | undefined>> {
+  if (!env.useMockApi) return request<MediaAsset | undefined>(`/media/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+
   let updatedAsset: MediaAsset | undefined;
   const nextAssets = getStoredMediaAssets().map((asset) => {
     if (asset.id !== id) return asset;
@@ -238,6 +216,8 @@ export async function updateMediaAsset(id: string, data: Partial<MediaAsset>): P
 }
 
 export async function deleteMediaAsset(id: string): Promise<ApiResponse<{ id: string }>> {
+  if (!env.useMockApi) return request<{ id: string }>(`/media/${id}`, { method: 'DELETE' });
+
   const nextAssets = getStoredMediaAssets().filter((asset) => asset.id !== id);
   saveMediaAssets(nextAssets);
   upsertRevision('gallery', id, { removedId: id });

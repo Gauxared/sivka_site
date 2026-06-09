@@ -100,8 +100,8 @@ export function Layout() {
         </div>
         <div>
           <h3>Связь</h3>
-          <a href="tel:+79991234567">
-            <Phone size={16} /> +7 (999) 123-45-67
+          <a href="tel:+79133218955">
+            <Phone size={16} /> +7 (913) 321-89-55
           </a>
           <span>Заявки обрабатываются с 08:00 до 20:00</span>
         </div>

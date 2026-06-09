@@ -1,12 +1,16 @@
 import { CalendarDays, Plus, ShieldCheck, Trash2, Users } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { getAvailableDates, getAvailableTimeSlots } from '../../services/availabilityService';
-import { createBookingRequest } from '../../services/api';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { createBookingRequest, getAvailability, getAvailableBookingDates } from '../../services/api';
 import type { BookingParticipant, BookingRequest, FormStatus, RiderExperience, Service, TimeSlot } from '../../types';
-import { riderExperienceLabels } from '../../utils/labels';
-import { getMediaStyle } from '../../utils/media';
+import { getPhotoMediaStyle } from '../../utils/media';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/States';
+
+const experienceLabels: Record<RiderExperience, string> = {
+  beginner: 'Новичок',
+  experienced: 'Есть опыт',
+  confident: 'Уверенный наездник',
+};
 
 const createParticipant = (): BookingParticipant => ({
   id: `participant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -34,6 +38,7 @@ interface BookingFormProps {
 }
 
 type BookingErrors = Partial<Record<keyof BookingRequest | `participant-${string}`, string>>;
+type AvailableBookingDate = { date: string; isAvailable: boolean; reason?: string };
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -62,11 +67,13 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
   const [submitReason, setSubmitReason] = useState('');
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
+  const [availableDates, setAvailableDates] = useState<AvailableBookingDate[]>([]);
+  const [slots, setSlots] = useState<TimeSlot[]>([]);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const submitFeedbackRef = useRef<HTMLDivElement>(null);
 
   const selectedService = useMemo(() => services.find((service) => service.id === form.serviceId), [form.serviceId, services]);
-  const availableDates = useMemo(() => (form.serviceId ? getAvailableDates(form.serviceId) : []), [form.serviceId]);
   const datesByIso = useMemo(() => new Map(availableDates.map((item) => [item.date, item])), [availableDates]);
-  const slots = useMemo<TimeSlot[]>(() => (form.serviceId && form.date ? getAvailableTimeSlots(form.serviceId, form.date, form.participants) : []), [form.date, form.participants, form.serviceId]);
   const selectedSlot = slots.find((slot) => slot.id === form.timeSlotId);
   const selectedDateLabel = form.date ? new Date(`${form.date}T00:00:00`).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
 
@@ -86,12 +93,63 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
   }, [calendarMonth]);
 
   useEffect(() => {
-    const firstAvailableDate = availableDates.find((date) => date.isAvailable)?.date || '';
-    setForm((current) => {
-      if (!firstAvailableDate || current.date) return current;
-      return { ...current, date: firstAvailableDate };
-    });
-  }, [availableDates]);
+    let active = true;
+    setAvailableDates([]);
+    setSlots([]);
+
+    if (!form.serviceId) {
+      return () => {
+        active = false;
+      };
+    }
+
+    getAvailableBookingDates(form.serviceId)
+      .then((response) => {
+        if (!active) return;
+        setAvailableDates(response.data);
+        setForm((current) => {
+          const selectedDate = response.data.find((item) => item.date === current.date);
+          if (current.date && selectedDate?.isAvailable) return current;
+          const firstAvailableDate = response.data.find((date) => date.isAvailable)?.date || '';
+          return { ...current, date: firstAvailableDate, timeSlotId: '' };
+        });
+      })
+      .catch(() => {
+        if (active) setAvailableDates([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [form.serviceId]);
+
+  useEffect(() => {
+    let active = true;
+    setSlots([]);
+
+    if (!form.serviceId || !form.date) {
+      setAvailabilityLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setAvailabilityLoading(true);
+    getAvailability(form.serviceId, form.date)
+      .then((response) => {
+        if (active) setSlots(response.data);
+      })
+      .catch(() => {
+        if (active) setSlots([]);
+      })
+      .finally(() => {
+        if (active) setAvailabilityLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [form.date, form.participants.length, form.serviceId]);
 
   useEffect(() => {
     setForm((current) => {
@@ -105,6 +163,13 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
     setErrors((current) => ({ ...current, [field]: undefined }));
     setStatus('idle');
     setSubmitReason('');
+  };
+
+  const showSubmitFeedback = () => {
+    window.setTimeout(() => {
+      submitFeedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      submitFeedbackRef.current?.focus({ preventScroll: true });
+    }, 0);
   };
 
   const selectDate = (dateIso: string) => {
@@ -173,9 +238,11 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
       await createBookingRequest(form);
       setStatus('success');
       setSubmitReason('');
+      showSubmitFeedback();
     } catch (error) {
       setStatus('error');
       setSubmitReason(error instanceof Error && error.message ? error.message : 'Не удалось отправить заявку. Проверьте данные и попробуйте еще раз.');
+      showSubmitFeedback();
     }
   };
 
@@ -261,7 +328,9 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
         <section className="booking-step">
           <h3>Доступное время</h3>
           <div className="slot-grid">
-            {slots.map((slot) => (
+            {availabilityLoading && <div className="state-box">Загружаем доступное время...</div>}
+            {!availabilityLoading && slots.length === 0 && <div className="state-box">Нет доступных слотов на выбранную дату.</div>}
+            {!availabilityLoading && slots.map((slot) => (
               <button
                 className={`slot-choice ${form.timeSlotId === slot.id ? 'active' : ''} ${!slot.isAvailable ? 'disabled' : ''}`}
                 disabled={!slot.isAvailable}
@@ -285,7 +354,7 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
           </label>
           <label>
             <span>Телефон *</span>
-            <input value={form.clientPhone} onChange={(event) => updateField('clientPhone', event.target.value)} placeholder="+7 (999) 123-45-67" inputMode="tel" />
+            <input value={form.clientPhone} onChange={(event) => updateField('clientPhone', event.target.value)} placeholder="+7 (913) 321-89-55" inputMode="tel" />
             {errors.clientPhone && <small>{errors.clientPhone}</small>}
           </label>
         </div>
@@ -323,7 +392,7 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
                   <label>
                     <span>Уровень подготовки *</span>
                     <select value={participant.experience} onChange={(event) => updateParticipant(participant.id, 'experience', event.target.value as RiderExperience)}>
-                      {Object.entries(riderExperienceLabels).map(([value, label]) => (
+                      {Object.entries(experienceLabels).map(([value, label]) => (
                         <option key={value} value={value}>
                           {label}
                         </option>
@@ -360,6 +429,16 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
           {status === 'loading' ? 'Проверяем доступность...' : 'Отправить заявку'}
         </Button>
 
+        {(status === 'success' || status === 'error') && (
+          <div ref={submitFeedbackRef} className="booking-submit-feedback" tabIndex={-1}>
+            {status === 'success' ? (
+              <Alert type="success">Заявка отправлена. Администратор проверит запись и свяжется с вами для подтверждения.</Alert>
+            ) : (
+              <Alert type="error">{submitReason || 'Не удалось отправить заявку. Попробуйте еще раз.'}</Alert>
+            )}
+          </div>
+        )}
+
         <p className="secure-note">
           <ShieldCheck size={17} /> Клиентская проверка помогает показать сценарий. Сервер после интеграции обязан повторно проверить доступность и правила.
         </p>
@@ -369,7 +448,7 @@ export function BookingForm({ services, selectedServiceId }: BookingFormProps) {
         {selectedService && (
           <section className="side-panel">
             <h3>Выбранная услуга</h3>
-            <div className="mini-service booking-selected-service-photo" style={getMediaStyle(selectedService.image, { fit: 'contain' })}>
+            <div className="mini-service" style={getPhotoMediaStyle(selectedService.image, selectedService.imagePosition, selectedService.imageScale)}>
               {selectedService.title}
             </div>
             <dl className="compact-list">

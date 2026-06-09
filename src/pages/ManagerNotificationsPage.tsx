@@ -30,10 +30,10 @@ export function ManagerNotificationsPage() {
     const loadNotifications = async () => {
       try {
         const [listResponse, unreadResponse] = await Promise.all([
-          getNotificationsByRecipient('admin', 'admin-local'),
-          getUnreadNotificationsCount('admin-local'),
+          getNotificationsByRecipient('manager', 'manager-local'),
+          getUnreadNotificationsCount('manager-local'),
         ]);
-        setNotifications(listResponse.data.filter((item) => item.recipientRole === 'admin'));
+        setNotifications(listResponse.data.filter((item) => item.recipientRole === 'manager'));
         setUnreadCount(unreadResponse.data);
       } finally {
         setLoading(false);

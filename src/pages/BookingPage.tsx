@@ -4,22 +4,24 @@ import { useSearchParams } from 'react-router-dom';
 import { BookingForm } from '../components/booking/BookingForm';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { ErrorState, LoadingState } from '../components/ui/States';
-import { getEditableContacts, getEditableSiteContent } from '../services/adminContent';
-import { getServices } from '../services/api';
-import type { Service } from '../types';
+import { getEditableSiteContent } from '../services/adminContent';
+import { getServices, getSiteContent } from '../services/api';
+import type { Service, SiteContent } from '../types';
 import { getMediaStyle } from '../utils/media';
 
 export function BookingPage() {
   const [searchParams] = useSearchParams();
   const [services, setServices] = useState<Service[]>([]);
+  const [siteContent, setSiteContent] = useState<SiteContent>(() => getEditableSiteContent());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const siteContent = getEditableSiteContent();
-  const contacts = getEditableContacts();
 
   useEffect(() => {
-    getServices()
-      .then((response) => setServices(response.data.filter((service) => service.isAvailable)))
+    Promise.all([getServices(), getSiteContent()])
+      .then(([servicesResponse, siteResponse]) => {
+        setServices(servicesResponse.data.filter((service) => service.isAvailable));
+        setSiteContent(siteResponse.data);
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
@@ -34,7 +36,7 @@ export function BookingPage() {
           <h1>Запись на занятие</h1>
           <p>Выберите услугу, удобную дату и время, заполните данные участников. Мы свяжемся с вами для подтверждения заявки.</p>
         </div>
-        <div className="booking-hero-photo" style={getMediaStyle(siteContent.homeHeroImage)} aria-hidden="true" />
+        <div className="booking-hero-photo" style={getMediaStyle(siteContent.homeHeroImage, siteContent.homeHeroImagePosition, siteContent.homeHeroImageScale)} aria-hidden="true" />
       </div>
 
       {loading && <LoadingState />}
@@ -52,7 +54,7 @@ export function BookingPage() {
         <article>
           <Phone size={24} />
           <div>
-            <strong>{contacts.phone}</strong>
+            <strong>+7 (913) 321-89-55</strong>
             <span>Ежедневно с 08:00 до 20:00</span>
           </div>
         </article>
@@ -60,7 +62,7 @@ export function BookingPage() {
           <MapPin size={24} />
           <div>
             <strong>пгт. Шерегеш</strong>
-            <span>Территория КТК "Сивка-Бурка"</span>
+            <span>Территория конюшни</span>
           </div>
         </article>
         <article>

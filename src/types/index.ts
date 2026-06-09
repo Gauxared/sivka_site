@@ -7,6 +7,8 @@ export interface Service {
   durationMinutes: number;
   price: string;
   image: string;
+  imagePosition?: string;
+  imageScale?: number;
   ageLimit: string;
   minAge: number;
   preparation: string;
@@ -115,6 +117,27 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface StaffNotificationSettings {
+  inApp: boolean;
+  browser: boolean;
+  emailEnabled: boolean;
+  telegramEnabled: boolean;
+  whatsappEnabled: boolean;
+  email?: string;
+  telegram?: string;
+  whatsapp?: string;
+}
+
+export interface StaffAccount {
+  id: string;
+  role: UserRole;
+  displayName: string;
+  login: string;
+  password: string;
+  trainerId?: string;
+  notificationSettings: StaffNotificationSettings;
+}
+
 export interface Booking {
   id: string;
   serviceId: string;
@@ -183,6 +206,8 @@ export interface GalleryItem {
   title: string;
   category: 'lessons' | 'walks' | 'photosessions' | 'horses' | 'territory';
   image: string;
+  imagePosition?: string;
+  imageScale?: number;
 }
 
 export interface ContactInfo {
@@ -238,6 +263,7 @@ export interface SiteContent {
   homeHeroText: string;
   homeHeroImage: string;
   homeHeroImagePosition: string;
+  homeHeroImageScale: number;
   primaryColor: string;
   darkColor: string;
   accentColor: string;

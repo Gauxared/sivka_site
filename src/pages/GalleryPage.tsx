@@ -1,20 +1,24 @@
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FolderOpen, Images, Maximize2, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { EditableTextField } from '../components/admin/EditableTextField';
 import { EditablePageTitle } from '../components/admin/EditablePageTitle';
+import { ImagePositionControl } from '../components/admin/ImagePositionControl';
 import { ImageUploadButton } from '../components/admin/ImageUploadButton';
 import { Button } from '../components/ui/Button';
+import { SectionTitle } from '../components/ui/SectionTitle';
 import { ErrorState, LoadingState } from '../components/ui/States';
 import {
   createEmptyGalleryItem,
-  getEditableGalleryItems,
   isAdminAuthorized,
   isAdminEditMode,
-  saveEditableGalleryItems,
 } from '../services/adminContent';
-import { getGalleryItems } from '../services/api';
+import {
+  createGalleryItem,
+  deleteGalleryItem,
+  getGalleryItems,
+  updateGalleryItem,
+} from '../services/api';
 import type { GalleryItem } from '../types';
-import { getMediaStyle } from '../utils/media';
+import { getMediaStyle, getPhotoMediaStyle, getResolvedMediaSource, normalizeImagePosition } from '../utils/media';
 
 const gallerySections: { value: GalleryItem['category']; title: string; text: string }[] = [
   { value: 'walks', title: 'Прогулки', text: 'Маршруты, спокойный темп и прогулки по территории.' },
@@ -24,33 +28,35 @@ const gallerySections: { value: GalleryItem['category']; title: string; text: st
   { value: 'territory', title: 'Территория', text: 'Место проведения занятий, манеж и зоны отдыха.' },
 ];
 
-const defaultCategoryImage: Record<GalleryItem['category'], string> = {
-  lessons: 'linear-gradient(135deg, #315734, #b67f4a)',
-  walks: 'linear-gradient(135deg, #4d6f4f, #d8b978)',
-  photosessions: 'linear-gradient(135deg, #69513a, #e1c7a0)',
-  horses: 'linear-gradient(135deg, #352216, #8f6f4d)',
-  territory: 'linear-gradient(135deg, #375c42, #d7bc80)',
-};
+const categoryLabels = Object.fromEntries(gallerySections.map((section) => [section.value, section.title])) as Record<GalleryItem['category'], string>;
 
-type ActiveIndexes = Partial<Record<GalleryItem['category'], number>>;
+function getNextIndex(currentIndex: number, length: number, direction: 1 | -1) {
+  if (length === 0) return 0;
+  return (currentIndex + direction + length) % length;
+}
 
 export function GalleryPage() {
   const [items, setItems] = useState<GalleryItem[]>([]);
-  const [activeIndexes, setActiveIndexes] = useState<ActiveIndexes>({});
+  const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
   const [adminEditMode, setAdminEditMode] = useState(isAdminAuthorized() && isAdminEditMode());
+  const [lightboxItemId, setLightboxItemId] = useState('');
+
+  const loadGallery = () => {
+    setError(false);
+    getGalleryItems()
+      .then((response) => {
+        setItems(response.data);
+        setSelectedId((currentId) => (response.data.some((item) => item.id === currentId) ? currentId : response.data[0]?.id || ''));
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    const loadGallery = () => {
-      getGalleryItems()
-        .then((response) => {
-          setItems(response.data);
-          setError(false);
-        })
-        .catch(() => setError(true))
-        .finally(() => setLoading(false));
-    };
     const syncAdminState = () => setAdminEditMode(isAdminAuthorized() && isAdminEditMode());
 
     loadGallery();
@@ -72,43 +78,114 @@ export function GalleryPage() {
     [items],
   );
 
-  const saveGallery = (nextItems: GalleryItem[]) => {
-    setItems(nextItems);
-    saveEditableGalleryItems(nextItems);
+  const selectedItem = items.find((item) => item.id === selectedId) || items[0];
+  const selectedIndex = selectedItem ? items.findIndex((item) => item.id === selectedItem.id) : -1;
+  const lightboxItem = lightboxItemId ? items.find((item) => item.id === lightboxItemId) : undefined;
+  const lightboxIndex = lightboxItem ? items.findIndex((item) => item.id === lightboxItem.id) : -1;
+  const fullImageSource = lightboxItem ? getResolvedMediaSource(lightboxItem.image) : '';
+
+  const selectByDirection = (direction: 1 | -1) => {
+    if (items.length === 0) return;
+    const nextIndex = getNextIndex(Math.max(selectedIndex, 0), items.length, direction);
+    setSelectedId(items[nextIndex].id);
   };
 
-  const updateItem = <K extends keyof GalleryItem>(id: string, field: K, value: GalleryItem[K]) => {
-    saveGallery(getEditableGalleryItems().map((item) => (item.id === id ? { ...item, [field]: value } : item)));
+  const openFullImage = (item: GalleryItem) => {
+    setSelectedId(item.id);
+    setLightboxItemId(item.id);
   };
 
-  const addItem = (category: GalleryItem['category']) => {
-    const newItem = {
+  const selectLightboxByDirection = (direction: 1 | -1) => {
+    if (items.length === 0 || lightboxIndex < 0) return;
+    const nextItem = items[getNextIndex(lightboxIndex, items.length, direction)];
+    setSelectedId(nextItem.id);
+    setLightboxItemId(nextItem.id);
+  };
+
+  useEffect(() => {
+    if (!lightboxItem) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLightboxItemId('');
+      if (event.key === 'ArrowLeft') selectLightboxByDirection(-1);
+      if (event.key === 'ArrowRight') selectLightboxByDirection(1);
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [lightboxItem, lightboxIndex, items]);
+
+  const patchLocalItem = (id: string, data: Partial<GalleryItem>) => {
+    setItems((current) => current.map((item) => (item.id === id ? { ...item, ...data } : item)));
+  };
+
+  const saveItemPatch = async (id: string, data: Partial<GalleryItem>) => {
+    setSaving(true);
+    setStatusMessage('');
+    patchLocalItem(id, data);
+
+    try {
+      const response = await updateGalleryItem(id, data);
+      if (response.data) patchLocalItem(id, response.data);
+      setStatusMessage('Фото обновлено.');
+    } catch (saveError) {
+      setStatusMessage(saveError instanceof Error ? saveError.message : 'Не удалось сохранить фото.');
+      loadGallery();
+    } finally {
+      setSaving(false);
+      window.setTimeout(() => setStatusMessage(''), 2400);
+    }
+  };
+
+  const addItem = async (category: GalleryItem['category']) => {
+    const newItem: GalleryItem = {
       ...createEmptyGalleryItem(),
       id: `gallery-${Date.now()}`,
-      title: `Новое фото: ${gallerySections.find((section) => section.value === category)?.title || 'Галерея'}`,
+      title: `Новое фото: ${categoryLabels[category]}`,
       category,
-      image: defaultCategoryImage[category],
+      image: '',
+      imagePosition: '50% 50%',
+      imageScale: 100,
     };
-    saveGallery([newItem, ...getEditableGalleryItems()]);
-    setActiveIndexes((current) => ({ ...current, [category]: 0 }));
+
+    setSaving(true);
+    setStatusMessage('');
+    try {
+      const response = await createGalleryItem(newItem);
+      setItems((current) => [response.data, ...current]);
+      setSelectedId(response.data.id);
+      setStatusMessage('Фото добавлено. Выберите изображение из медиатеки.');
+    } catch (addError) {
+      setStatusMessage(addError instanceof Error ? addError.message : 'Не удалось добавить фото.');
+    } finally {
+      setSaving(false);
+      window.setTimeout(() => setStatusMessage(''), 3000);
+    }
   };
 
-  const deleteItem = (id: string, category: GalleryItem['category']) => {
-    saveGallery(getEditableGalleryItems().filter((item) => item.id !== id));
-    setActiveIndexes((current) => ({ ...current, [category]: Math.max(0, (current[category] || 0) - 1) }));
-  };
+  const removeSelectedItem = async () => {
+    if (!selectedItem) return;
+    setSaving(true);
+    setStatusMessage('');
 
-  const getActiveIndex = (category: GalleryItem['category'], count: number) => {
-    if (count <= 0) return 0;
-    return Math.min(activeIndexes[category] || 0, count - 1);
-  };
-
-  const moveCarousel = (category: GalleryItem['category'], count: number, direction: -1 | 1) => {
-    if (count <= 1) return;
-    setActiveIndexes((current) => {
-      const nextIndex = ((current[category] || 0) + direction + count) % count;
-      return { ...current, [category]: nextIndex };
-    });
+    try {
+      await deleteGalleryItem(selectedItem.id);
+      setItems((current) => current.filter((item) => item.id !== selectedItem.id));
+      const fallback = items.find((item) => item.id !== selectedItem.id);
+      setSelectedId(fallback?.id || '');
+      setStatusMessage('Фото удалено.');
+    } catch (deleteError) {
+      setStatusMessage(deleteError instanceof Error ? deleteError.message : 'Не удалось удалить фото.');
+    } finally {
+      setSaving(false);
+      window.setTimeout(() => setStatusMessage(''), 2400);
+    }
   };
 
   return (
@@ -119,12 +196,121 @@ export function GalleryPage() {
       {error && <ErrorState />}
 
       {!loading && !error && (
-        <div className="gallery-story">
-          {groupedItems.map((section) => {
-            const activeIndex = getActiveIndex(section.value, section.items.length);
-            const activeItem = section.items[activeIndex];
+        <>
+          <section className="gallery-carousel-section" aria-label="Просмотр фотографий">
+            {selectedItem ? (
+              <div className="gallery-carousel">
+                <button className="gallery-carousel-nav" type="button" onClick={() => selectByDirection(-1)} aria-label="Предыдущее фото">
+                  <ChevronLeft size={24} />
+                </button>
+                <div
+                  className="gallery-carousel-media gallery-carousel-media-button"
+                  role="button"
+                  tabIndex={0}
+                  style={getMediaStyle(selectedItem.image, selectedItem.imagePosition, selectedItem.imageScale)}
+                  onClick={() => openFullImage(selectedItem)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      openFullImage(selectedItem);
+                    }
+                  }}
+                  aria-label={`Открыть фото полностью: ${selectedItem.title}`}
+                >
+                  <div className="gallery-carousel-caption">
+                    <span>{categoryLabels[selectedItem.category]}</span>
+                    <h2>{selectedItem.title}</h2>
+                    <small><Maximize2 size={15} /> {selectedIndex + 1} / {items.length}</small>
+                  </div>
+                </div>
+                <button className="gallery-carousel-nav" type="button" onClick={() => selectByDirection(1)} aria-label="Следующее фото">
+                  <ChevronRight size={24} />
+                </button>
+              </div>
+            ) : (
+              <div className="gallery-empty-hero">
+                <Images size={32} />
+                <strong>В галерее пока нет фотографий</strong>
+              </div>
+            )}
 
-            return (
+            {items.length > 0 && (
+              <div className="gallery-carousel-thumbs" aria-label="Миниатюры галереи">
+                {items.map((item) => (
+                  <button
+                    className={item.id === selectedItem?.id ? 'active' : ''}
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSelectedId(item.id)}
+                    aria-label={`Открыть фото: ${item.title}`}
+                    style={getMediaStyle(item.image, item.imagePosition, item.imageScale)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {adminEditMode && (
+              <div className="gallery-admin-panel">
+                <div className="gallery-admin-panel-header">
+                  <strong>Управление галереей</strong>
+                  <div className="gallery-add-actions">
+                    {gallerySections.map((section) => (
+                      <Button key={section.value} variant="secondary" onClick={() => void addItem(section.value)} disabled={saving}>
+                        <Plus size={16} /> {section.title}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {selectedItem && (
+                  <div className="gallery-selected-editor">
+                    <label>
+                      <span>Название выбранного фото</span>
+                      <input
+                        value={selectedItem.title}
+                        onBlur={(event) => void saveItemPatch(selectedItem.id, { title: event.target.value })}
+                        onChange={(event) => patchLocalItem(selectedItem.id, { title: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>Альбом</span>
+                      <select
+                        value={selectedItem.category}
+                        onChange={(event) => void saveItemPatch(selectedItem.id, { category: event.target.value as GalleryItem['category'] })}
+                      >
+                        {gallerySections.map((section) => (
+                          <option key={section.value} value={section.value}>
+                            {section.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="gallery-image-picker">
+                      <span className="field-title">Изображение</span>
+                      <ImageUploadButton label="Загрузить фото" onUpload={(url) => void saveItemPatch(selectedItem.id, { image: url })} />
+                    </div>
+                    <ImagePositionControl
+                      image={selectedItem.image}
+                      value={selectedItem.imagePosition}
+                      scale={selectedItem.imageScale}
+                      onChange={(position) => patchLocalItem(selectedItem.id, { imagePosition: position })}
+                      onCommit={(position) => void saveItemPatch(selectedItem.id, { imagePosition: position })}
+                      onScaleChange={(nextScale) => patchLocalItem(selectedItem.id, { imageScale: nextScale })}
+                      onScaleCommit={(nextScale) => void saveItemPatch(selectedItem.id, { imageScale: nextScale })}
+                    />
+                    <Button variant="ghost" className="danger-button" onClick={() => void removeSelectedItem()} disabled={saving}>
+                      <Trash2 size={17} /> Удалить выбранное фото
+                    </Button>
+                  </div>
+                )}
+
+                {statusMessage && <small className="media-picker-status">{statusMessage}</small>}
+              </div>
+            )}
+          </section>
+
+          <div className="gallery-story">
+            {groupedItems.map((section) => (
               <section className="gallery-section" id={`gallery-${section.value}`} key={section.value}>
                 <div className="gallery-section-heading">
                   <div>
@@ -132,81 +318,91 @@ export function GalleryPage() {
                     <h2>{section.title}</h2>
                     <p>{section.text}</p>
                   </div>
-                  {adminEditMode && (
-                    <Button variant="secondary" onClick={() => addItem(section.value)}>
-                      <Plus size={18} /> Добавить фото
-                    </Button>
-                  )}
                 </div>
 
-                {activeItem ? (
-                  <div className="gallery-carousel">
-                    <button className="gallery-carousel-arrow" type="button" disabled={section.items.length <= 1} onClick={() => moveCarousel(section.value, section.items.length, -1)} aria-label="Предыдущее фото">
-                      <ChevronLeft size={24} />
-                    </button>
-
-                    <div className="gallery-carousel-main">
-                      <div className="gallery-carousel-stage" style={getMediaStyle(activeItem.image, { fit: 'contain' })}>
-                        <div className="gallery-carousel-caption">
-                          <strong>{activeItem.title}</strong>
-                          <span>{activeIndex + 1} / {section.items.length}</span>
-                        </div>
-                      </div>
-
-                      <div className="gallery-carousel-thumbs" aria-label={`Миниатюры: ${section.title}`}>
-                        {section.items.map((item, index) => (
-                          <button
-                            className={index === activeIndex ? 'active' : ''}
-                            key={item.id}
-                            type="button"
-                            onClick={() => setActiveIndexes((current) => ({ ...current, [section.value]: index }))}
-                            aria-label={`Открыть фото: ${item.title}`}
-                          >
-                            <span style={getMediaStyle(item.image, { fit: 'contain' })} />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <button className="gallery-carousel-arrow" type="button" disabled={section.items.length <= 1} onClick={() => moveCarousel(section.value, section.items.length, 1)} aria-label="Следующее фото">
-                      <ChevronRight size={24} />
-                    </button>
+                {section.items.length > 0 ? (
+                  <div className="gallery-album-grid">
+                    {section.items.map((item) => (
+                      <button
+                        className={item.id === selectedItem?.id ? 'gallery-album-card active' : 'gallery-album-card'}
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(item.id);
+                          if (!adminEditMode) setLightboxItemId(item.id);
+                        }}
+                      >
+                        <span className="gallery-album-photo" style={getMediaStyle(item.image, item.imagePosition, item.imageScale)} />
+                        <strong>{item.title}</strong>
+                      </button>
+                    ))}
                   </div>
                 ) : (
                   <div className="state-box">В этом альбоме пока нет фотографий.</div>
                 )}
-
-                {adminEditMode && activeItem && (
-                  <div className="inline-edit-panel gallery-inline-panel">
-                    <strong>Редактирование выбранного фото</strong>
-                    <label>
-                      <span>Заголовок</span>
-                      <EditableTextField value={activeItem.title} onCommit={(value) => updateItem(activeItem.id, 'title', value)} />
-                    </label>
-                    <label>
-                      <span>Категория</span>
-                      <select value={activeItem.category} onChange={(event) => updateItem(activeItem.id, 'category', event.target.value as GalleryItem['category'])}>
-                        {gallerySections.map((category) => (
-                          <option key={category.value} value={category.value}>
-                            {category.title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>URL или gradient</span>
-                      <EditableTextField value={activeItem.image} onCommit={(value) => updateItem(activeItem.id, 'image', value)} />
-                    </label>
-                    <ImageUploadButton label="Добавить файл фото" onUpload={(dataUrl) => updateItem(activeItem.id, 'image', dataUrl)} />
-                    <button className="button button-ghost danger-button" type="button" onClick={() => deleteItem(activeItem.id, section.value)}>
-                      <Trash2 size={17} /> Удалить фото
-                    </button>
-                  </div>
-                )}
               </section>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+
+          <section className="gallery-folders" aria-label="Папки галереи">
+            <SectionTitle eyebrow="Папки" title="Все фотографии по разделам" text="Быстрый переход к альбомам с загруженными изображениями." />
+            <div className="folder-grid">
+              {groupedItems.map((section) => (
+                <a className="folder-card" href={`#gallery-${section.value}`} key={section.value}>
+                  <FolderOpen size={28} />
+                  <strong>{section.title}</strong>
+                  <span>{section.items.length} фото</span>
+                </a>
+              ))}
+            </div>
+          </section>
+
+          {lightboxItem && (
+            <div className="gallery-lightbox" role="dialog" aria-modal="true" aria-label={`Полное фото: ${lightboxItem.title}`} onClick={() => setLightboxItemId('')}>
+              <button className="gallery-lightbox-close" type="button" onClick={() => setLightboxItemId('')} aria-label="Закрыть фото">
+                <X size={22} />
+              </button>
+              {items.length > 1 && (
+                <button
+                  className="gallery-lightbox-nav gallery-lightbox-nav--prev"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    selectLightboxByDirection(-1);
+                  }}
+                  aria-label="Предыдущее фото"
+                >
+                  <ChevronLeft size={28} />
+                </button>
+              )}
+              <div className="gallery-lightbox-stage" onClick={(event) => event.stopPropagation()}>
+                {fullImageSource ? (
+                  <img src={fullImageSource} alt={lightboxItem.title} style={{ objectPosition: normalizeImagePosition(lightboxItem.imagePosition) }} />
+                ) : (
+                  <div className="gallery-lightbox-fallback" style={getPhotoMediaStyle(lightboxItem.image, lightboxItem.imagePosition, lightboxItem.imageScale)} />
+                )}
+                <div className="gallery-lightbox-caption">
+                  <span>{categoryLabels[lightboxItem.category]}</span>
+                  <strong>{lightboxItem.title}</strong>
+                  <small>{lightboxIndex + 1} / {items.length}</small>
+                </div>
+              </div>
+              {items.length > 1 && (
+                <button
+                  className="gallery-lightbox-nav gallery-lightbox-nav--next"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    selectLightboxByDirection(1);
+                  }}
+                  aria-label="Следующее фото"
+                >
+                  <ChevronRight size={28} />
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </section>
   );

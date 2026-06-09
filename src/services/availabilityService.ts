@@ -9,7 +9,7 @@ import {
 import type { AvailabilityCheckResult, Booking, BookingParticipant, BookingRequest, BookingRule, Horse, Service, TimeSlot, Trainer } from '../types';
 
 const BLOCKING_STATUSES: Booking['status'][] = ['pending', 'confirmed', 'needs_clarification'];
-const BOOKING_DATE_LOOKAHEAD_DAYS = 730;
+const BOOKING_DAYS_AHEAD = 120;
 
 const toMinutes = (time: string) => {
   const [hours, minutes] = time.split(':').map(Number);
@@ -212,9 +212,9 @@ export function getAvailableDates(serviceId: string) {
   if (!service?.isAvailable) return [];
 
   const today = new Date();
-  return Array.from({ length: BOOKING_DATE_LOOKAHEAD_DAYS }).map((_, index) => {
+  return Array.from({ length: BOOKING_DAYS_AHEAD }).map((_, index) => {
     const date = new Date(today);
-    date.setDate(today.getDate() + index);
+    date.setDate(today.getDate() + index + 1);
     const isoDate = date.toISOString().slice(0, 10);
     const closed = isDateClosed(isoDate, rules);
 

@@ -7,6 +7,8 @@ import {
   getTrainers,
   updateBookingStatus,
 } from './mockApi';
+import * as backend from './backendApi';
+import { env } from './env';
 import type {
   ApiResponse,
   Booking,
@@ -96,6 +98,8 @@ function filterBookings(bookings: Booking[], filters?: ManagerBookingFilters) {
 }
 
 export async function getManagerBookings(filters?: ManagerBookingFilters): Promise<ApiResponse<Booking[]>> {
+  if (!env.useMockApi) return backend.getManagerBookings(filters);
+
   const [{ data: bookings }] = await Promise.all([getBookings()]);
   const filtered = filterBookings(bookings, filters).sort((a, b) =>
     toDateTime(a.date, a.startTime).getTime() - toDateTime(b.date, b.startTime).getTime(),
@@ -104,10 +108,13 @@ export async function getManagerBookings(filters?: ManagerBookingFilters): Promi
 }
 
 export async function getManagerBookingById(id: string): Promise<ApiResponse<Booking | undefined>> {
+  if (!env.useMockApi) return backend.getManagerBookingById(id);
   return getBookingById(id);
 }
 
 export async function getManagerDashboardStats(): Promise<ApiResponse<ManagerDashboardStats>> {
+  if (!env.useMockApi) return backend.getManagerDashboardStats();
+
   const { data: bookings } = await getBookings();
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
@@ -131,6 +138,8 @@ export async function getManagerDashboardStats(): Promise<ApiResponse<ManagerDas
 }
 
 export async function getManagerAttentionBookings(): Promise<ApiResponse<ManagerAttentionBooking[]>> {
+  if (!env.useMockApi) return backend.getManagerAttentionBookings();
+
   const [{ data: bookings }, { data: horses }] = await Promise.all([getBookings(), getHorses()]);
   const restWarnings = findRestWarnings(bookings);
   const activeHorseIds = new Set(horses.filter((horse) => horse.isActive && horse.status === 'available').map((horse) => horse.id));
@@ -158,6 +167,8 @@ export async function getManagerAttentionBookings(): Promise<ApiResponse<Manager
 }
 
 export async function getManagerTrainerWorkload(dateFrom?: string, dateTo?: string): Promise<ApiResponse<TrainerWorkloadSummary[]>> {
+  if (!env.useMockApi) return backend.getManagerTrainerWorkload(dateFrom, dateTo);
+
   const [{ data: bookings }, { data: trainers }] = await Promise.all([getBookings(), getTrainers()]);
 
   const scoped = bookings.filter((booking) => isDateInRange(booking.date, dateFrom, dateTo));
@@ -178,6 +189,8 @@ export async function getManagerTrainerWorkload(dateFrom?: string, dateTo?: stri
 }
 
 export async function getManagerHorseWorkload(dateFrom?: string, dateTo?: string): Promise<ApiResponse<HorseWorkloadSummary[]>> {
+  if (!env.useMockApi) return backend.getManagerHorseWorkload(dateFrom, dateTo);
+
   const [{ data: bookings }, { data: horses }] = await Promise.all([getBookings(), getHorses()]);
   const scoped = bookings.filter((booking) => isDateInRange(booking.date, dateFrom, dateTo));
   const restWarnings = findRestWarnings(scoped);
@@ -197,14 +210,18 @@ export async function getManagerHorseWorkload(dateFrom?: string, dateTo?: string
 }
 
 export async function managerAssignTrainer(bookingId: string, trainerId?: string) {
+  if (!env.useMockApi) return backend.assignBookingTrainer(bookingId, trainerId);
   return assignBookingTrainer(bookingId, trainerId);
 }
 
 export async function managerUpdateBookingStatus(bookingId: string, status: Booking['status'], adminComment?: string) {
+  if (!env.useMockApi) return backend.updateBookingStatus(bookingId, status, adminComment);
   return updateBookingStatus(bookingId, status, adminComment);
 }
 
 export async function getManagerReferenceData() {
+  if (!env.useMockApi) return backend.getManagerReferenceData();
+
   const [services, trainers, horses] = await Promise.all([getServices(), getTrainers(), getHorses()]);
   return {
     data: {
@@ -216,6 +233,8 @@ export async function getManagerReferenceData() {
 }
 
 export async function getManagerTodaySchedule() {
+  if (!env.useMockApi) return backend.getManagerTodaySchedule();
+
   const { data: bookings } = await getBookings();
   const today = new Date();
   const todayItems = bookings

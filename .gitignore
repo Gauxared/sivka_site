@@ -1,6 +1,31 @@
+# Dependencies and build output
 node_modules/
 dist/
+
+# Local runtime data
+backend/.data/
+.npm-cache/
 .env
-.DS_Store
+.env.local
+
+# Logs and temporary files
 *.log
+*.tmp
+*.bak
+.DS_Store
+.gigacode/
+
+# Local archives and generated document artifacts
+/*.png
 *.rar
+*.zip
+*.7z
+*.docx
+*.pdf
+docx_render_backend/
+diploma_work/
+Diplom/
+docs/
+tools/
+tools/__pycache__/
+GITHUB_UPLOAD.md

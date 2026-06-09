@@ -19,7 +19,6 @@ import { ServicesPage } from '../pages/ServicesPage';
 import { StaffLoginPage } from '../pages/StaffLoginPage';
 import { TrainerBookingDetailsPage } from '../pages/TrainerBookingDetailsPage';
 import { TrainerLoginPage } from '../pages/TrainerLoginPage';
-import { TrainerNotificationsPage } from '../pages/TrainerNotificationsPage';
 import { TrainerSchedulePage } from '../pages/TrainerSchedulePage';
 import { getEditableSiteContent } from '../services/adminContent';
 
@@ -59,7 +58,7 @@ export function App() {
         <Route path="/manager/notifications" element={<ManagerNotificationsPage />} />
         <Route path="/trainer/login" element={<TrainerLoginPage />} />
         <Route path="/trainer/schedule" element={<TrainerSchedulePage />} />
-        <Route path="/trainer/notifications" element={<TrainerNotificationsPage />} />
+        <Route path="/trainer/notifications" element={<Navigate to="/trainer/schedule" replace />} />
         <Route path="/trainer/bookings/:id" element={<TrainerBookingDetailsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

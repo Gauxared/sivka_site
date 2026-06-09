@@ -13,7 +13,7 @@ export function GalleryGrid({ items }: { items: GalleryItem[] }) {
   return (
     <div className="gallery-grid">
       {items.map((item) => (
-        <article className="gallery-card" key={item.id} style={getMediaStyle(item.image)}>
+        <article className="gallery-card" key={item.id} style={getMediaStyle(item.image, item.imagePosition, item.imageScale)}>
           <span>{categoryLabels[item.category]}</span>
           <h3>{item.title}</h3>
         </article>

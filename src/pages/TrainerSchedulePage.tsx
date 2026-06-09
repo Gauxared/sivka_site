@@ -7,7 +7,6 @@ import { Button, ButtonLink } from '../components/ui/Button';
 import { SectionTitle } from '../components/ui/SectionTitle';
 import { LoadingState } from '../components/ui/States';
 import { getBookings, getServices } from '../services/api';
-import { getUnreadNotificationsCount } from '../services/notificationRepository';
 import { getTrainerById } from '../services/trainerRepository';
 import { getAuthorizedTrainerId, isTrainerAuthorized, logoutTrainer } from '../services/trainerAuth';
 import type { Booking, Service, Trainer } from '../types';
@@ -34,7 +33,6 @@ export function TrainerSchedulePage() {
   const [trainer, setTrainer] = useState<Trainer | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<ScheduleMode>('day');
   const [selectedDate, setSelectedDate] = useState(dateIso(new Date()));
@@ -56,11 +54,10 @@ export function TrainerSchedulePage() {
     if (!trainerId) return;
     try {
       setLoading(true);
-      const [trainerResponse, bookingsResponse, servicesResponse, unreadResponse] = await Promise.all([
+      const [trainerResponse, bookingsResponse, servicesResponse] = await Promise.all([
         getTrainerById(trainerId),
         getBookings(),
         getServices(),
-        getUnreadNotificationsCount(trainerId),
       ]);
 
       const trainerBookings = bookingsResponse.data
@@ -70,7 +67,6 @@ export function TrainerSchedulePage() {
       setTrainer(trainerResponse.data || null);
       setBookings(trainerBookings);
       setServices(servicesResponse.data);
-      setUnreadCount(unreadResponse.data);
     } finally {
       setLoading(false);
     }
@@ -104,12 +100,11 @@ export function TrainerSchedulePage() {
         <SectionTitle
           eyebrow="Кабинет тренера"
           title={trainer ? `Расписание: ${trainer.fullName}` : 'Расписание тренера'}
-          text={`Непрочитанных уведомлений: ${unreadCount}. Показываются только назначенные вам занятия.`}
+          text="Показываются только назначенные вам занятия. Переключайтесь между днем и неделей, чтобы сверить расписание."
         />
         <StaffWorkspaceNav
           items={[
             { to: '/trainer/schedule', label: 'Расписание' },
-            { to: '/trainer/notifications', label: `Уведомления (${unreadCount})` },
           ]}
           onLogout={handleLogout}
         />
